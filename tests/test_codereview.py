@@ -82,6 +82,23 @@ class TestCodeReview(unittest.TestCase):
                   if "safe.ts" in (f.evidence_ids[0] if f.evidence_ids else "")]
         self.assertNotIn("Endpoint sem autenticação aparente", " | ".join(titles))
 
+    def test_pula_projeto_aninhado_e_claude_worktrees(self):
+        # projeto aninhado (tem .git proprio) -> deve ser ignorado (era 72% ruido)
+        nested = self.tmp / "outro-projeto"
+        (nested / "src").mkdir(parents=True)
+        (nested / ".git").write_text("gitdir: ../.git/worktrees/x", encoding="utf-8")
+        (nested / "src" / "vaza.ts").write_text(
+            'const K = "service_role";\n', encoding="utf-8")
+        # worktrees soltos dentro de .claude tambem sao ruido
+        wt = self.tmp / ".claude" / "worktrees" / "app-medico" / "src"
+        wt.mkdir(parents=True)
+        (wt / "api.ts").write_text("app.post('/x', h);\n", encoding="utf-8")
+
+        evid = [f.evidence_ids[0] for f in codereview.review(self.tmp)
+                if f.evidence_ids]
+        self.assertFalse(any("outro-projeto" in e for e in evid))
+        self.assertFalse(any("worktrees" in e for e in evid))
+
     def test_pasta_limpa_sem_achados(self):
         clean = Path(tempfile.mkdtemp())
         (clean / "src").mkdir()

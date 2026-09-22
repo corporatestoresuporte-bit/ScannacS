@@ -21,7 +21,8 @@ from .findings import Finding, Severity, Status
 
 # pastas ignoradas na varredura
 _SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "__pycache__",
-              ".next", "coverage", "playwright-report"}
+              ".next", "coverage", "playwright-report", ".claude", "worktrees",
+              "dist-worktrees"}
 _TEXT_EXT = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".json", ".env",
              ".sql", ".html", ".vue", ".svelte", ".py", ".txt", ".yml",
              ".yaml", ".toml", ".sh", ".template", ".local"}
@@ -98,11 +99,35 @@ def _is_frontend(path: str) -> bool:
     return any(h.replace("\\", "/") in p for h in _FRONTEND_HINTS)
 
 
+def _nested_project_roots(root: Path) -> list[Path]:
+    """Projetos aninhados (repo/worktree dentro do repo): têm `.git` próprio
+    e NÃO são a raiz. Escanear eles = ruído de outro projeto (72% no caso real).
+    """
+    out: list[Path] = []
+    try:
+        rr = root.resolve()
+        for g in root.rglob(".git"):     # `.git` é dir (repo) ou file (worktree)
+            parent = g.parent.resolve()
+            if parent != rr:
+                out.append(parent)
+    except OSError:
+        pass
+    return out
+
+
 def _iter_files(root: Path):
+    nested = _nested_project_roots(root)
     for p in root.rglob("*"):
         if not p.is_file():
             continue
         if any(part in _SKIP_DIRS for part in p.parts):
+            continue
+        # pula arquivos dentro de projeto aninhado (worktree/repo de outro app)
+        try:
+            rp = p.resolve()
+            if any(rp.is_relative_to(n) for n in nested):
+                continue
+        except OSError:
             continue
         if p.suffix.lower() not in _TEXT_EXT and p.name != ".env":
             continue
