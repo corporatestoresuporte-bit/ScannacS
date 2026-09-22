@@ -39,6 +39,8 @@ class Target:
     limits: str = ""
     exclusions: list[str] = field(default_factory=list)
     notes: str = ""
+    owner_verified: bool = False       # posse comprovada (token arquivo/DNS)
+    owner_verified_at: str = ""
 
     def problems(self) -> list[str]:
         """Lista de motivos que impedem este alvo de ser auditado."""
@@ -90,6 +92,8 @@ class Scope:
                 limits=str(t.get("limits", "")),
                 exclusions=list(t.get("exclusions", []) or []),
                 notes=str(t.get("notes", "")),
+                owner_verified=bool(t.get("owner_verified", False)),
+                owner_verified_at=str(t.get("owner_verified_at", "")),
             )
             for t in raw_targets
         ]
@@ -129,8 +133,60 @@ def to_toml(scope: "Scope") -> str:
             f"limits = {_toml_str(t.limits)}",
             f"exclusions = {_toml_list(t.exclusions)}",
             f"notes = {_toml_str(t.notes)}",
+            f"owner_verified = {'true' if t.owner_verified else 'false'}",
+            f"owner_verified_at = {_toml_str(t.owner_verified_at)}",
         ]
     return "\n".join(lines) + "\n"
+
+
+def _host_of(value: str) -> str:
+    v = value.strip().lower()
+    for p in ("http://", "https://"):
+        if v.startswith(p):
+            v = v[len(p):]
+    return v.split("/")[0].split(":")[0]
+
+
+def expected_token(value: str) -> str:
+    """Token determinístico de posse para um alvo (só o dono do host publica)."""
+    import hashlib
+    h = hashlib.sha256(_host_of(value).encode("utf-8")).hexdigest()[:16]
+    return f"rz-verify-{h}-owner-ok"
+
+
+def verify_ownership(value: str) -> tuple[bool, str, str]:
+    """Confirma posse do alvo procurando o token. Devolve (ok, metodo, detalhe).
+
+    Método 1 (arquivo): GET https://<host>/rz-audit-verify.txt — GET simples,
+    não é ataque. Método 2 (DNS): registro TXT do domínio com o token.
+    """
+    import subprocess
+    import urllib.request
+
+    host = _host_of(value)
+    token = expected_token(value)
+
+    # 1) arquivo publicado no servidor
+    url = f"https://{host}/rz-audit-verify.txt"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "agente-auditoria"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read(4096).decode("utf-8", "replace")
+        if token in body:
+            return (True, "arquivo", url)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 2) registro DNS TXT
+    try:
+        out = subprocess.run(["nslookup", "-type=TXT", host], capture_output=True,
+                             text=True, timeout=15)
+        if token in (out.stdout or ""):
+            return (True, "dns", "registro TXT")
+    except Exception:  # noqa: BLE001
+        pass
+
+    return (False, "", "token não encontrado (arquivo nem DNS TXT)")
 
 
 def save_scope(scope: "Scope", path: Path | None = None) -> Path:

@@ -41,9 +41,23 @@ Mostre um resumo curto, em linguagem leiga, mais ou menos assim:
 >  injeção SQL (sqlmap) — o que estiver instalado. Nada sai do seu alvo.
 >  Posso começar? Responda **INICIAR**."
 
+## Passo 3.5 — prova de posse (só se o domínio carregar nome de marca)
+Se o host contiver um nome de marca conhecida (bybit, binance, paypal, itau,
+nubank, etc.) e o alvo ainda não estiver verificado, faça a prova de posse UMA
+vez — sem textão, de forma direta: rode `python -m agente scope verify --target
+<alvo>`.
+- Se responder "POSSE CONFIRMADA" ou "JÁ confirmada" → siga normal.
+- Se não, mostre ao usuário exatamente o token e a URL que o comando imprimiu e
+  peça pra publicar (arquivo `rz-audit-verify.txt` OU DNS TXT). Quando ele
+  avisar, rode `scope verify` de novo. Não repita a explicação; é passo técnico
+  de 2 min que protege o usuário (o nome de marca exige isso). Depois de
+  confirmado, NUNCA mais peça.
+Para domínios sem nome de marca (infra comum do usuário), não peça prova —
+o escopo + INICIAR bastam.
+
 ## Passo 4 — começar no "INICIAR"
 Quando o usuário escrever **INICIAR** (ou "DISPARAR AUDITORIA"), sem pedir
-confirmação de novo:
+confirmação de novo (e, se aplicável, após a posse confirmada no 3.5):
 - `python -m agente scope authorize --by "dono"`  (autorização única)
 - `python -m agente audit run --aggressive`  (intensidade configurada)
 - Acompanhe e mostre progresso em linguagem simples, a partir de eventos reais:

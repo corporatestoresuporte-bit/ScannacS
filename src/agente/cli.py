@@ -278,6 +278,37 @@ def cmd_scope_add_target(a) -> int:
     return 0
 
 
+def cmd_scope_verify(a) -> int:
+    """Prova de posse do alvo (token em arquivo ou DNS TXT). Uma vez só."""
+    s = scope_mod.load_scope()
+    if not s:
+        _p("Escopo ausente.")
+        return 1
+    host = scope_mod._host_of(a.target)
+    tgt = next((t for t in s.targets if scope_mod._host_of(t.value) == host), None)
+    if tgt is None:
+        _p(f"Alvo não está no escopo: {a.target}")
+        return 1
+    token = scope_mod.expected_token(a.target)
+    if tgt.owner_verified:
+        _p(f"Posse JÁ confirmada para {host} (em {tgt.owner_verified_at}).")
+        return 0
+    ok, method, detail = scope_mod.verify_ownership(a.target)
+    if ok:
+        tgt.owner_verified = True
+        tgt.owner_verified_at = _now()
+        scope_mod.save_scope(s)
+        _p(f"POSSE CONFIRMADA para {host} (método: {method}, {detail}).")
+        _p("Não pedirei prova de novo para este alvo.")
+        return 0
+    _p(f"Posse ainda NÃO comprovada para {host}. {detail}")
+    _p("Publique o token (uma das opções) e rode 'scope verify' de novo:")
+    _p(f"  Opção A (arquivo): https://{host}/rz-audit-verify.txt")
+    _p(f"    conteúdo exato:  {token}")
+    _p(f"  Opção B (DNS TXT em {host}): valor {token}")
+    return 2
+
+
 def cmd_scope_authorize(a) -> int:
     """DISPARAR AUDITORIA — autorização única (não duplica confirmação)."""
     s = scope_mod.load_scope()
@@ -536,6 +567,9 @@ def build_parser() -> argparse.ArgumentParser:
     au = sc_s.add_parser("authorize", help="DISPARAR AUDITORIA (autorização única)")
     au.add_argument("--by", required=True)
     au.set_defaults(func=cmd_scope_authorize)
+    vf = sc_s.add_parser("verify", help="prova de posse do alvo (token arquivo/DNS)")
+    vf.add_argument("--target", required=True)
+    vf.set_defaults(func=cmd_scope_verify)
 
     ad = sub.add_parser("audit"); ad_s = ad.add_subparsers(dest="c")
     ad_s.add_parser("plan").set_defaults(func=cmd_audit_plan)
