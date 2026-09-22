@@ -266,10 +266,12 @@ class ContentDiscoveryEngine(Engine):
         if shutil.which("ffuf"):
             # -ac (auto-calibração) remove o falso-positivo de SPA que responde
             # 200 para qualquer caminho (catch-all).
+            # -rate limita requisições/seg (evita rajada não controlada); -t
+            # concorrência. Mantém o tráfego agregado dentro de um teto.
             return (f'ffuf -w "{wl}" -u {url}/FUZZ -ac '
-                    f'-mc 200,201,204,301,302,307,401,403 -t 40 -s')
+                    f'-mc 200,201,204,301,302,307,401,403 -t 20 -rate 40 -s')
         if shutil.which("gobuster"):
-            return f'gobuster dir -u {url} -w "{wl}" -q -t 40'
+            return f'gobuster dir -u {url} -w "{wl}" -q -t 20 --delay 25ms'
         return f'[indisponível] ffuf/gobuster não instalados ({url})'
 
     def interpret(self, target, raw, status):

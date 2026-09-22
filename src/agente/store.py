@@ -158,6 +158,16 @@ class Session:
         return self._load("findings")
 
     def add_finding(self, finding: dict) -> dict:
+        # BOUNDARY: não publicar "confirmado" sem evidência/validação suficientes.
+        if finding.get("status") == "confirmado":
+            from . import findings as _F
+            ok, missing = _F.validate_confirmation(finding, self.evidence())
+            if not ok:
+                finding = dict(finding)
+                finding["status"] = "suspeita"
+                finding["nota_validacao"] = (
+                    "confirmação rejeitada (evidência insuficiente): "
+                    + "; ".join(missing))
         return self._append("findings", finding)
 
     def evidence(self) -> list:

@@ -112,9 +112,10 @@ def _swap_param(url: str, body: str, param: str, marker: str) -> tuple[str, str]
 
 
 def _evidence(session, req_desc: str, url: str, status, raw: str,
-              summary: str, tier=EvidenceTier.TOOL_OBSERVED) -> str:
+              summary: str, coll: CollectionStatus = CollectionStatus.OK,
+              tier=EvidenceTier.TOOL_OBSERVED) -> str:
     ev = Evidence(target=_host_of(url), tool="replay", params=req_desc, source=url,
-                  result_summary=summary[:200], status=CollectionStatus.OK,
+                  result_summary=summary[:200], status=coll,
                   tier=tier, exit_code=status if isinstance(status, int) else None)
     stored = session.add_evidence(ev.to_dict())
     ev.id = stored["id"]
@@ -141,19 +142,26 @@ def run_replay(session, scope: Scope | None, req: Req, tests: list[str],
         raise PermissionError(reason)
 
     state_changing = req.method not in SAFE_METHODS
+    # GUARD: método que altera/apaga dados NÃO envia nada sem permissão explícita
+    # (inclusive o baseline). Falha fechada ANTES de qualquer requisição.
+    if state_changing and not allow_side_effects:
+        raise PermissionError(
+            f"método {req.method} pode alterar/apagar dados no alvo; nenhum "
+            "envio foi feito. Use --com-efeito-colateral se for seguro no SEU alvo.")
+
     findings: list[Finding] = []
 
     # baseline (requisição original)
-    base_status, base_raw, _ = _send(req.method, req.url, req.headers, req.body)
+    base_status, base_raw, base_coll = _send(req.method, req.url, req.headers, req.body)
     base_id = _evidence(session, f"{req.method} baseline", req.url, base_status,
-                        base_raw, f"baseline status={base_status}")
+                        base_raw, f"baseline status={base_status}", coll=base_coll)
 
     # 1) sem autenticação
     if "no-auth" in tests or "sem-auth" in tests:
-        s, raw, _ = _send(req.method, req.url, _strip_auth(req.headers), req.body)
+        s, raw, coll = _send(req.method, req.url, _strip_auth(req.headers), req.body)
         eid = _evidence(session, f"{req.method} SEM auth", req.url, s, raw,
-                        f"sem-auth status={s}")
-        if _looks_like_data(s, raw):
+                        f"sem-auth status={s}", coll=coll)
+        if coll == CollectionStatus.OK and _looks_like_data(s, raw):
             findings.append(Finding(
                 target=_host_of(req.url),
                 title="Endpoint responde SEM autenticação (dados retornados)",
@@ -167,10 +175,10 @@ def run_replay(session, scope: Scope | None, req: Req, tests: list[str],
     if ("idor" in tests) and req.fuzz_param:
         val = fuzz_value
         u2, b2 = _swap_param(req.url, req.body, req.fuzz_param, val)
-        s, raw, _ = _send(req.method, u2, req.headers, b2)
+        s, raw, coll = _send(req.method, u2, req.headers, b2)
         eid = _evidence(session, f"IDOR {req.fuzz_param}={val}", u2, s, raw,
-                        f"idor status={s}")
-        if _looks_like_data(s, raw):
+                        f"idor status={s}", coll=coll)
+        if coll == CollectionStatus.OK and _looks_like_data(s, raw):
             findings.append(Finding(
                 target=_host_of(req.url),
                 title=f"Possível IDOR/BOLA em '{req.fuzz_param}' (objeto de outro)",
@@ -204,10 +212,11 @@ def run_replay(session, scope: Scope | None, req: Req, tests: list[str],
                     inj = body
             except json.JSONDecodeError:
                 inj = body
-            s, raw, _ = _send(req.method, req.url, req.headers, inj)
+            s, raw, coll = _send(req.method, req.url, req.headers, inj)
             eid = _evidence(session, f"{req.method} mass-assignment", req.url, s,
-                            raw, f"mass status={s}")
-            if probe in raw or '"is_admin":true' in raw.replace(" ", "").lower():
+                            raw, f"mass status={s}", coll=coll)
+            if coll == CollectionStatus.OK and (
+                    probe in raw or '"is_admin":true' in raw.replace(" ", "").lower()):
                 findings.append(Finding(
                     target=_host_of(req.url),
                     title="Possível mass assignment (campo de privilégio aceito)",
@@ -225,11 +234,15 @@ def run_replay(session, scope: Scope | None, req: Req, tests: list[str],
             s, _r, _st = _send(req.method, req.url, req.headers, req.body, timeout=10)
             codes.append(s)
             time.sleep(0.05)
-        limited = any(c == 429 for c in codes)
-        eid = _evidence(session, f"rate x{len(codes)}", req.url, codes[-1],
-                        f"codigos: {codes}",
-                        f"rate: 429? {'sim' if limited else 'nao'}")
-        if not limited:
+        real = [c for c in codes if isinstance(c, int)]   # respostas HTTP reais
+        limited = any(c == 429 for c in real)
+        # se NENHUMA resposta chegou (erro de conexão), é inconclusivo, não achado
+        coll = CollectionStatus.OK if real else CollectionStatus.ERROR
+        eid = _evidence(session, f"rate x{len(codes)}", req.url,
+                        (codes[-1] if codes else None), f"codigos: {codes}",
+                        f"rate: respostas={len(real)} 429? {'sim' if limited else 'nao'}",
+                        coll=coll)
+        if real and not limited:
             findings.append(Finding(
                 target=_host_of(req.url),
                 title="Sem rate-limit observado (nenhum 429 na rajada)",

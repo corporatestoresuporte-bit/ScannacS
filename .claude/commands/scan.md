@@ -41,19 +41,16 @@ Mostre um resumo curto, em linguagem leiga, mais ou menos assim:
 >  injeção SQL (sqlmap) — o que estiver instalado. Nada sai do seu alvo.
 >  Posso começar? Responda **INICIAR**."
 
-## Passo 3.5 — prova de posse (só se o domínio carregar nome de marca)
-Se o host contiver um nome de marca conhecida (bybit, binance, paypal, itau,
-nubank, etc.) e o alvo ainda não estiver verificado, faça a prova de posse UMA
-vez — sem textão, de forma direta: rode `python -m agente scope verify --target
-<alvo>`.
+## Passo 3.5 — prova de posse (OBRIGATÓRIA para qualquer alvo)
+Regra única (igual à do comando `scan`): antes de testar, o alvo precisa ter
+posse comprovada. Se ainda não estiver verificado, rode
+`python -m agente scope verify --target <alvo>`.
 - Se responder "POSSE CONFIRMADA" ou "JÁ confirmada" → siga normal.
-- Se não, mostre ao usuário exatamente o token e a URL que o comando imprimiu e
-  peça pra publicar (arquivo `rz-audit-verify.txt` OU DNS TXT). Quando ele
-  avisar, rode `scope verify` de novo. Não repita a explicação; é passo técnico
-  de 2 min que protege o usuário (o nome de marca exige isso). Depois de
-  confirmado, NUNCA mais peça.
-Para domínios sem nome de marca (infra comum do usuário), não peça prova —
-o escopo + INICIAR bastam.
+- Se não, mostre ao usuário o token e a URL que o comando imprimiu e peça pra
+  publicar (arquivo `rz-audit-verify.txt` OU registro DNS TXT). Quando ele
+  avisar, rode `scope verify` de novo. É passo técnico de 2 min que protege o
+  usuário juridicamente. Depois de confirmado, NUNCA mais peça.
+Uma regra só, para todo alvo — sem exceção por nome de marca.
 
 ## Passo 4 — começar no "INICIAR"
 Quando o usuário escrever **INICIAR** (ou "DISPARAR AUDITORIA"), sem pedir

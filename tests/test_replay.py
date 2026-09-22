@@ -1,13 +1,15 @@
 """Replay ativo: gating de posse/escopo + helpers (sem rede)."""
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 import _pathshim  # noqa: F401
 
-from agente import replay
+from agente import replay, store
+from agente.evidence import CollectionStatus
 from agente.scope import Scope, Target
 
 
@@ -33,6 +35,38 @@ class TestReplay(unittest.TestCase):
                          headers={}, body="")
         with self.assertRaises(PermissionError):
             replay.run_replay(None, _scope(False), req, ["no-auth"])
+
+    def test_metodo_que_muda_estado_nao_envia_sem_permissao(self):
+        # DELETE sem --com-efeito-colateral: NENHUM envio (nem baseline)
+        calls = []
+        orig = replay._send
+        replay._send = lambda *a, **k: (calls.append(1), (200, "x", CollectionStatus.OK))[1]
+        try:
+            req = replay.Req("DELETE", "https://meusite.com/api/x", {}, "")
+            with self.assertRaises(PermissionError):
+                replay.run_replay(None, _scope(True), req, ["no-auth"],
+                                  allow_side_effects=False)
+        finally:
+            replay._send = orig
+        self.assertEqual(calls, [])  # zero requisições enviadas
+
+    def test_erro_conexao_nao_vira_achado_de_rate(self):
+        tmp = Path(tempfile.mkdtemp())
+        sd, ap = store.SESSIONS_DIR, store.ACTIVE_POINTER
+        store.SESSIONS_DIR, store.ACTIVE_POINTER = tmp, tmp / ".active"
+        orig = replay._send
+        replay._send = lambda *a, **k: (None, "(erro de conexao)", CollectionStatus.ERROR)
+        try:
+            sess = store.Session.create()
+            req = replay.Req("GET", "https://meusite.com/api/x", {}, "")
+            found = replay.run_replay(sess, _scope(True), req, ["rate"], rate_n=3)
+            self.assertFalse(any("rate-limit" in f.title for f in found))
+            # evidência de erro não fica marcada como coleta OK
+            self.assertTrue(any(e.get("status") != "ok" for e in sess.evidence()))
+        finally:
+            replay._send = orig
+            store.SESSIONS_DIR, store.ACTIVE_POINTER = sd, ap
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_swap_param_query_e_corpo(self):
         u, b = replay._swap_param(

@@ -44,6 +44,13 @@ class TestSession(unittest.TestCase):
         again.set_active()
         self.assertEqual(store.Session.active().id, sid)
 
+    def test_confirmado_sem_evidencia_vira_suspeita(self):
+        s = store.Session.create()
+        stored = s.add_finding({"title": "x", "target": "a.com",
+                                "status": "confirmado", "evidence_ids": []})
+        self.assertEqual(stored["status"], "suspeita")
+        self.assertIn("rejeitada", stored.get("nota_validacao", ""))
+
     def test_limits_roundtrip(self):
         s = store.Session.create()
         s.save_limits({"h": {"count": 3}})

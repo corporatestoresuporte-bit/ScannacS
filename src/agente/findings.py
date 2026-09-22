@@ -114,6 +114,48 @@ def _best_tier(evs: list[Evidence]) -> EvidenceTier | None:
     return max(tiers, key=lambda t: TIER_RANK[t])
 
 
+def validate_confirmation(finding: dict, evidences: list[dict]) -> tuple[bool, list[str]]:
+    """Valida um achado-DICT contra as evidências-DICT da sessão (boundary de
+    gravação). Espelha `can_confirm`, mas opera sobre os dados persistidos e
+    exige que a evidência esteja LIGADA e presente na sessão.
+    """
+    missing: list[str] = []
+    if not str(finding.get("target", "")).strip():
+        missing.append("alvo do achado não definido")
+
+    ids = set(finding.get("evidence_ids", []) or [])
+    linked = [e for e in evidences if e.get("id") in ids]
+    usable = [e for e in linked
+              if e.get("status") == "ok" and e.get("artifact_path")
+              and e.get("artifact_sha256") and e.get("tool")]
+    if not usable:
+        missing.append("sem evidência utilizável ligada ao achado na sessão")
+
+    v = finding.get("validation") or {}
+    if not (v.get("validated_by") and v.get("validated_at")):
+        missing.append("sem registro de validação")
+    if not v.get("alternative_explanations"):
+        missing.append("validação não considerou explicações alternativas")
+    if read_verdict(v, "is_true_positive") is not True:
+        missing.append("veredito is_true_positive não é True")
+    if not finding.get("confirmation_type"):
+        missing.append("confirmation_type ausente")
+
+    # explorabilidade só com evidência reproduzida
+    if str(finding.get("exploitability", "")).strip() or read_verdict(v, "is_exploitable") is True:
+        tiers = [e.get("tier") for e in usable]
+        if EvidenceTier.REPRODUCED.value not in tiers:
+            missing.append("explorabilidade sem evidência reproduzida")
+
+    if str(finding.get("cve", "")).strip():
+        if not str(finding.get("cve_source", "")).strip():
+            missing.append("CVE sem fonte consultada")
+        if not str(finding.get("cve_applicability", "")).strip():
+            missing.append("CVE sem verificação de aplicabilidade")
+
+    return (not missing, missing)
+
+
 def can_confirm(finding: Finding, evidences: list[Evidence]) -> tuple[bool, list[str]]:
     """Aplica o portão de confirmação. Devolve (ok, faltando).
 

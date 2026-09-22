@@ -142,3 +142,15 @@ licença/atribuição e verificação. Licenças completas em `THIRD_PARTY_LICEN
   uso não-comercial.
 - **Extração de host do executor é heurística** (falha fechada): comando de rede
   sem host claro ou com substituição de comando é NEGADO por precaução.
+- **Detecção de rede por lista de nomes** cobre ferramentas conhecidas +
+  interpretadores (python/node/…) com URL http(s). NÃO é isolamento real: um
+  script muito criativo pode escapar. Garantia forte exige sandbox (não portado
+  no Windows — ver acima). Falha fechada é o mitigador.
+- **Rate-limit por-ferramenta é best-effort** (ex.: ffuf com `-rate`); o teto do
+  executor conta por invocação de motor, não requisição-a-requisição interna de
+  cada scanner. Números anunciados são aproximações, não medição de tráfego.
+- **Revisão externa (22/09/2026):** corrigidos — replay não envia método que
+  muda estado sem `--com-efeito-colateral` (falha fechada antes de qualquer
+  envio); `scan` roda só o alvo selecionado (escopo por-execução); `confirmado`
+  sem evidência utilizável é rebaixado a `suspeita` no gravador; erro de conexão
+  no replay não vira achado. Ver histórico git.

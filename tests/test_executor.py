@@ -28,11 +28,22 @@ class TestExecutor(unittest.TestCase):
         self.assertFalse(uses_network('grep -rE "curl|wget|http://" .'))
         self.assertTrue(decide('grep -rE "curl|wget" .', _scope()).allow)
         self.assertTrue(decide('cat urls.txt', _scope()).allow)
-        self.assertFalse(uses_network('python scan.py https://x.com'))
+        # python SEM url = local; com url = rede (ver test_interpretador_com_url)
+        self.assertFalse(uses_network('python scan.py --flag local'))
 
     def test_network_when_tool_is_executable(self):
         self.assertTrue(uses_network("curl https://meusite.com"))
         self.assertTrue(uses_network("ls; nmap meusite.com"))
+
+    def test_interpretador_com_url_conta_como_rede(self):
+        self.assertTrue(uses_network(
+            'python -c "import urllib.request as u; u.urlopen(\'https://evil.example\')"'))
+        self.assertTrue(uses_network("node app.js https://api.evil.example"))
+
+    def test_propria_cli_agente_nao_e_rede(self):
+        # a CLI do projeto se auto-limita; não deve ser regateada pelo hook
+        self.assertFalse(uses_network("python -m agente scan https://meusite.com"))
+        self.assertFalse(uses_network("python tools/guard.py"))
 
     def test_network_without_scope_denied(self):
         d = decide("curl -sI https://meusite.com", None)

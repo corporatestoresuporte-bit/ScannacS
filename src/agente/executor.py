@@ -105,14 +105,28 @@ def _first_token(command: str) -> str:
     return _exe(command)
 
 
-def uses_network(command: str) -> bool:
-    """É ação de rede? SÓ quando a FERRAMENTA EXECUTADA é de rede.
+# interpretadores que podem sair pra rede via script/arg (não são "locais")
+INTERPRETERS = {"python", "python3", "py", "node", "nodejs", "ruby", "php",
+                "perl", "deno", "bun"}
+# comandos da PRÓPRIA CLI deste projeto (auto-gated internamente) — não regatear
+_OWN_CLI = re.compile(r"-m\s+agente\b|(?:^|[\\/ ])agente(?:\s|$)|"
+                      r"tools[\\/](?:guard|banner)\.py", re.I)
 
-    Corrige o over-block: `grep "curl" arq`, `cat url.txt`, `python x.py` são
-    LOCAIS mesmo mencionando curl/URL como argumento — só conta se o executável
-    de algum segmento for uma ferramenta de rede.
+
+def uses_network(command: str) -> bool:
+    """É ação de rede? Quando a FERRAMENTA EXECUTADA é de rede — OU quando um
+    interpretador (python/node/…) recebe uma URL http(s) (script buscando rede).
+
+    Não conta comando local que só MENCIONA curl/URL como argumento
+    (`grep "curl" arq`), nem a própria CLI `agente` (que já se auto-limita).
     """
-    return any(_exe(seg) in NETWORK_TOOLS for seg in _segments(command))
+    exes = [_exe(seg) for seg in _segments(command)]
+    if any(e in NETWORK_TOOLS for e in exes):
+        return True
+    if (any(e in INTERPRETERS for e in exes)
+            and _URL_RE.search(command) and not _OWN_CLI.search(command)):
+        return True
+    return False
 
 
 def extract_hosts(command: str) -> list[str]:

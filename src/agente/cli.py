@@ -600,10 +600,21 @@ def _classify_evidence(evs: list) -> tuple[list, list, list]:
 
 def print_report(sess: Session) -> None:
     m = sess.meta()
-    scope = scope_mod.load_scope()
-    tgt = scope.targets[0].value if (scope and scope.targets) else "-"
-    verified = any(t.owner_verified for t in scope.targets) if scope else False
     findings = sess.findings()
+    evs = sess.evidence()
+    # alvo REAL desta sessão vem das evidências/achados, não do escopo global
+    tgt = "-"
+    for src in (evs, findings):
+        for it in src:
+            if it.get("target"):
+                tgt = it["target"]
+                break
+        if tgt != "-":
+            break
+    scope = scope_mod.load_scope()
+    verified = bool(scope and any(
+        scope_mod._host_of(t.value) == scope_mod._host_of(tgt) and t.owner_verified
+        for t in scope.targets))
     confirmados = [f for f in findings if f.get("status") == "confirmado"]
     suspeitas = [f for f in findings if f.get("status") == "suspeita"]
     descartados = [f for f in findings if f.get("status") == "descartado"]
@@ -869,12 +880,18 @@ def scan_main(argv: list[str] | None = None) -> int:
     scope.authorized_at = _now()
     scope_mod.save_scope(scope)
 
+    # Escopo POR-EXECUÇÃO: só o alvo selecionado (não varre outros salvos).
+    run_scope = scope_mod.Scope(
+        authorized=True, authorized_by="dono", authorized_at=scope.authorized_at,
+        environment=scope.environment, targets=[existing])
+
     sess = Session.create(environment=scope.environment or "producao",
-                          scope_hash=scope_mod.scope_hash(scope))
+                          scope_hash=scope_mod.scope_hash(run_scope),
+                          prompts_hash=ctx.manifest_hash())
     _p("Rodando auditoria ponta a ponta... (pode levar alguns minutos)")
     rps, maxrun = (5.0, 500) if a.calm else (50.0, 100000)
     try:
-        audit_mod.run(scope=scope, confirmed=True, session=sess,
+        audit_mod.run(scope=run_scope, confirmed=True, session=sess,
                       rps=rps, max_per_run=maxrun)
     except audit_mod.AuditBlocked as exc:
         _p("Bloqueado: " + "; ".join(exc.reasons))
