@@ -8,15 +8,21 @@ autorizado, contra alvos que eu mesmo defino.
 > (`DISPARAR AUDITORIA`) + execução via executor controlado.** O portão nega por
 > padrão (fail-closed). A máquina de desenvolvimento nunca é alvo implícito.
 
-## Mais simples: `scan`
+## Mais simples: `scan` (fluxo de 2 fases)
 
 ```bash
 scan exemplo.com
 ```
 
-Pergunta/usa o alvo, **exige prova de posse** (token em arquivo ou DNS TXT — uma
-vez por alvo), roda **todos os motores instalados** e imprime o relatório. Não
-precisa do Claude. Instalação e ferramentas: veja **[INSTALL.md](INSTALL.md)**
+- **Fase 1 (a ferramenta, sem Claude):** pergunta o alvo, **exige prova de posse**
+  (token em arquivo ou DNS TXT — uma vez por alvo), oferece analisar o
+  código-fonte, e roda **todas as análises pesadas** (externo + código),
+  gerando evidência e relatório. É o "músculo" — sem bloqueios.
+- **Fase 2 (abre o Claude Code sozinho no fim):** carrega prompt master + skills
+  (RAPTOR/ACSK), **valida** os achados (tira falso-positivo), consulta CVE e
+  **escreve o relatório final**. É o "cérebro". Não re-ataca o host.
+
+Pra ficar só na fase 1: `scan exemplo.com --no-claude`. Instalação e ferramentas: veja **[INSTALL.md](INSTALL.md)**
 (no Windows, `.\instalar.ps1` cria o atalho `scan` e checa tudo).
 
 Com análise do código-fonte (o risco real de SPA+Supabase — segredo no bundle,

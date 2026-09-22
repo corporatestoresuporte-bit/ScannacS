@@ -536,6 +536,8 @@ def cmd_scan(a) -> int:
         argv.append("--calm")
     if getattr(a, "code", None):
         argv += ["--code", a.code]
+    if getattr(a, "no_claude", False):
+        argv.append("--no-claude")
     return scan_main(argv)
 
 
@@ -710,6 +712,8 @@ def build_parser() -> argparse.ArgumentParser:
     sca.add_argument("-y", "--yes", action="store_true")
     sca.add_argument("--calm", action="store_true")
     sca.add_argument("--code", default=None, help="pasta do código p/ análise local")
+    sca.add_argument("--no-claude", action="store_true",
+                     help="não abrir o Claude Code na fase 2")
     sca.set_defaults(func=cmd_scan)
     rc = sub.add_parser("review-code", help="análise de código local (segredo/RLS/XSS)")
     rc.add_argument("path")
@@ -742,6 +746,8 @@ def scan_main(argv: list[str] | None = None) -> int:
     ap.add_argument("--calm", action="store_true", help="intensidade normal")
     ap.add_argument("--code", default=None,
                     help="pasta do código-fonte p/ análise local (segredo/RLS/XSS)")
+    ap.add_argument("--no-claude", action="store_true",
+                    help="não abrir o Claude Code na fase 2 (só a fase 1)")
     a = ap.parse_args(argv)
 
     target = a.target
@@ -797,9 +803,19 @@ def scan_main(argv: list[str] | None = None) -> int:
             _p(f"  ou registro DNS TXT em {host}  ->  {token}")
             return 2
 
+    # modo conversa: oferece incluir a análise do código-fonte (risco de SPA)
+    if not a.code and not a.yes and sys.stdin.isatty():
+        try:
+            cp = input("Caminho do codigo-fonte p/ analise local "
+                       "(Enter p/ pular): ").strip().strip('"')
+        except EOFError:
+            cp = ""
+        if cp:
+            a.code = cp
+
     if not a.yes:
-        _p(f"Vou auditar {existing.value} com todos os motores instalados. "
-           "Nada sai do seu alvo.")
+        _p(f"Vou auditar {existing.value} com todos os motores instalados"
+           f"{' + analise do codigo' if a.code else ''}. Nada sai do seu alvo.")
         try:
             resp = input("Comecar? (s/N) ").strip().lower()
         except EOFError:
@@ -837,6 +853,22 @@ def scan_main(argv: list[str] | None = None) -> int:
 
     _p("")
     print_report(sess)
+
+    # Fase 2: abre o Claude Code para VALIDAR e escrever o relatório final.
+    # (O Claude não re-executa scan ofensivo — apenas analisa a evidência.)
+    if not a.no_claude:
+        claude = shutil.which("claude")
+        if claude and sys.stdin.isatty():
+            _p("\n== Fase 2: abrindo o Claude Code para validar e finalizar "
+               "o relatório (Ctrl+C encerra) ==")
+            try:
+                subprocess.call([claude, "-n", "Auditoria", "/finalizar"],
+                                cwd=str(config.ROOT))
+            except Exception as e:  # noqa: BLE001
+                _p(f"(não consegui abrir o Claude Code: {e})")
+        elif not claude:
+            _p("\n(Claude Code não encontrado. Depois rode a fase 2 manual: "
+               "abra `claude` no projeto e use /finalizar.)")
     return 0
 
 
