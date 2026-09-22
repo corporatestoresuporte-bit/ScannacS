@@ -501,6 +501,31 @@ def cmd_tools(_a) -> int:
     return 0
 
 
+def cmd_review_code(a) -> int:
+    """Análise de código local (segredo/service_role/RLS/XSS)."""
+    from pathlib import Path
+    from . import codereview
+    root = Path(a.path)
+    if not root.exists():
+        _p(f"Pasta não encontrada: {a.path}")
+        return 1
+    findings = codereview.review(root, target=a.target or root.name)
+    sess = Session.active() or Session.create(environment="code-review")
+    for f in findings:
+        sess.add_finding(f.to_dict())
+    _p(f"Análise de código: {root}  (sessão {sess.id})")
+    if not findings:
+        _p("Nenhum indício de segredo/RLS/XSS. NÃO prova ausência de falha.")
+        return 0
+    order = {"critica": 0, "alta": 1, "media": 2, "baixa": 3, "info": 4}
+    for f in sorted(findings, key=lambda x: order.get(x.severity.value, 9)):
+        ev = f.evidence_ids[0] if f.evidence_ids else ""
+        _p(f"  [{f.severity.value.upper()}] {f.title}  ({ev})")
+    _p(f"\nTotal: {len(findings)} suspeita(s) de análise estática — "
+       "validar antes de confirmar.")
+    return 0
+
+
 def cmd_scan(a) -> int:
     argv: list[str] = []
     if a.target:
@@ -509,6 +534,8 @@ def cmd_scan(a) -> int:
         argv.append("-y")
     if a.calm:
         argv.append("--calm")
+    if getattr(a, "code", None):
+        argv += ["--code", a.code]
     return scan_main(argv)
 
 
@@ -682,7 +709,12 @@ def build_parser() -> argparse.ArgumentParser:
     sca.add_argument("target", nargs="?")
     sca.add_argument("-y", "--yes", action="store_true")
     sca.add_argument("--calm", action="store_true")
+    sca.add_argument("--code", default=None, help="pasta do código p/ análise local")
     sca.set_defaults(func=cmd_scan)
+    rc = sub.add_parser("review-code", help="análise de código local (segredo/RLS/XSS)")
+    rc.add_argument("path")
+    rc.add_argument("--target", default="")
+    rc.set_defaults(func=cmd_review_code)
     sub.add_parser("tools", help="lista motores/ferramentas detectadas").set_defaults(func=cmd_tools)
     sub.add_parser("report", help="relatório da sessão ativa").set_defaults(func=cmd_report)
     sub.add_parser("hook").set_defaults(func=cmd_hook)
@@ -708,6 +740,8 @@ def scan_main(argv: list[str] | None = None) -> int:
     ap.add_argument("target", nargs="?", help="site/servidor (ex.: exemplo.com)")
     ap.add_argument("-y", "--yes", action="store_true", help="não perguntar")
     ap.add_argument("--calm", action="store_true", help="intensidade normal")
+    ap.add_argument("--code", default=None,
+                    help="pasta do código-fonte p/ análise local (segredo/RLS/XSS)")
     a = ap.parse_args(argv)
 
     target = a.target
@@ -789,6 +823,18 @@ def scan_main(argv: list[str] | None = None) -> int:
     except audit_mod.AuditBlocked as exc:
         _p("Bloqueado: " + "; ".join(exc.reasons))
         return 2
+
+    if a.code:
+        from pathlib import Path
+        from . import codereview
+        cpath = Path(a.code)
+        if cpath.exists():
+            _p(f"Analisando código em {cpath} ...")
+            for f in codereview.review(cpath, target=existing.value):
+                sess.add_finding(f.to_dict())
+        else:
+            _p(f"(--code) pasta não encontrada: {a.code}")
+
     _p("")
     print_report(sess)
     return 0
