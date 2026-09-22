@@ -116,7 +116,8 @@ ferramenta → verificação inconclusiva (limitação), nunca achado inventado.
 | `agente prompts list/import/context` | Prompts master + contexto rastreável. |
 | `agente scope init/show/validate/set-env/add-target/authorize` | Escopo. |
 | `agente scan <alvo> [--code <pasta>]` | Auditoria ponta a ponta (posse → roda tudo → relatório). |
-| `agente review-code <pasta>` | Análise de código local: segredo/service_role/RLS/XSS. |
+| `agente review-code <pasta>` | Análise de código local: segredo/service_role/RLS/XSS + rota sem auth, mass assignment, preço do cliente, IDOR. |
+| `agente replay <req.json>` | Teste ATIVO autorizado de 1 requisição: IDOR/BOLA, mass assignment, endpoint sem auth, rate-limit. |
 | `agente report` | Relatório da sessão ativa. |
 | `agente tools` | Lista motores embutidos + ferramentas externas detectadas. |
 | `agente prompts import-inbox` | Importa prompts de `prompts/inbox/`. |

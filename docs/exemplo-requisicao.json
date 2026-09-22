@@ -1,0 +1,11 @@
+{
+  "_comentario": "Modelo p/ `agente replay`. Capture uma requisição AUTENTICADA do seu app (DevTools > Network > botão direito > Copy > Copy as fetch/cURL) e preencha abaixo. Rode: agente replay este-arquivo.json",
+  "method": "GET",
+  "url": "https://SEU-ALVO/api/orders?email=voce@exemplo.com",
+  "headers": {
+    "Authorization": "Bearer SEU_TOKEN_AQUI",
+    "Content-Type": "application/json"
+  },
+  "body": "",
+  "fuzz_param": "email"
+}

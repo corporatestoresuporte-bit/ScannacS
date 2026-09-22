@@ -541,6 +541,39 @@ def cmd_scan(a) -> int:
     return scan_main(argv)
 
 
+def cmd_replay(a) -> int:
+    """Teste ativo autorizado (IDOR/mass/no-auth/rate) a partir de 1 requisição."""
+    from pathlib import Path
+    from . import replay
+    reqf = Path(a.request)
+    if not reqf.exists():
+        _p(f"Arquivo de requisição não encontrado: {a.request}")
+        return 1
+    try:
+        req = replay.load_request(reqf)
+    except Exception as e:  # noqa: BLE001
+        _p(f"JSON de requisição inválido: {e}")
+        return 1
+    scope = scope_mod.load_scope()
+    tests = [t.strip() for t in (a.tests or "").split(",") if t.strip()]
+    sess = Session.active() or Session.create(environment="replay")
+    try:
+        findings = replay.run_replay(sess, scope, req, tests,
+                                     fuzz_value=a.fuzz_value,
+                                     allow_side_effects=a.side_effects)
+    except PermissionError as e:
+        _p(f"BLOQUEADO: {e}")
+        return 2
+    _p(f"Replay em {req.url} (sessão {sess.id})")
+    if not findings:
+        _p("Nenhuma suspeita nos testes rodados. NÃO prova ausência de falha.")
+        return 0
+    for f in findings:
+        ev = ", ".join(f.evidence_ids) if f.evidence_ids else ""
+        _p(f"  [{f.severity.value.upper()}] {f.title}  ({ev})")
+    return 0
+
+
 def cmd_hook(_a) -> int:
     from .hook import main as hook_main
     return hook_main()
@@ -719,6 +752,13 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("path")
     rc.add_argument("--target", default="")
     rc.set_defaults(func=cmd_review_code)
+    rp = sub.add_parser("replay", help="teste ativo autorizado (IDOR/mass/no-auth/rate)")
+    rp.add_argument("request", help="arquivo JSON da requisição capturada")
+    rp.add_argument("--tests", default="no-auth,idor,mass,rate")
+    rp.add_argument("--fuzz-value", dest="fuzz_value", default="__idor_probe__")
+    rp.add_argument("--com-efeito-colateral", dest="side_effects",
+                    action="store_true", help="permite métodos que mudam estado")
+    rp.set_defaults(func=cmd_replay)
     sub.add_parser("tools", help="lista motores/ferramentas detectadas").set_defaults(func=cmd_tools)
     sub.add_parser("report", help="relatório da sessão ativa").set_defaults(func=cmd_report)
     sub.add_parser("hook").set_defaults(func=cmd_hook)
