@@ -314,8 +314,12 @@ def cmd_audit_plan(_a) -> int:
 def cmd_audit_run(a) -> int:
     scope = scope_mod.load_scope()
     confirmed = bool(a.confirm) or bool(scope and scope.authorized)
+    rps, maxrun = (50.0, 100000) if getattr(a, "aggressive", False) else (5.0, 500)
+    if getattr(a, "aggressive", False):
+        _p("Modo AGRESSIVO: sem teto prático de rate (dentro do escopo).")
     try:
-        result = audit_mod.run(scope=scope, confirmed=confirmed)
+        result = audit_mod.run(scope=scope, confirmed=confirmed,
+                               rps=rps, max_per_run=maxrun)
     except audit_mod.AuditBlocked as exc:
         _p("Auditoria BLOQUEADA:")
         for r in exc.reasons:
@@ -535,7 +539,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     ad = sub.add_parser("audit"); ad_s = ad.add_subparsers(dest="c")
     ad_s.add_parser("plan").set_defaults(func=cmd_audit_plan)
-    ru = ad_s.add_parser("run"); ru.add_argument("--confirm", action="store_true")
+    ru = ad_s.add_parser("run")
+    ru.add_argument("--confirm", action="store_true")
+    ru.add_argument("--aggressive", action="store_true",
+                    help="sem teto prático de rate (força total no escopo)")
     ru.set_defaults(func=cmd_audit_run)
     ad_s.add_parser("status").set_defaults(func=cmd_audit_status)
 

@@ -55,22 +55,29 @@ def plan(scope: scope_mod.Scope | None = None) -> list[str]:
              ", ".join(f"{t}{'(ok)' if ok else '(-)'}" for t, ok in tools.items())]
     for t in gate.scope.targets:
         for key in t.allowed_tests:
-            engs = engines_mod.engines_for(key)
+            engs = (engines_mod.all_engines() if key.lower() in ALL_KEYS
+                    else engines_mod.engines_for(key))
             if not engs:
                 lines.append(f"[{t.value}] teste '{key}': (sem motor)")
             for e in engs:
-                avail = "" if e.available() else " (ferramenta ausente → limitação)"
+                avail = "" if e.available() else " (ferramenta ausente -> limitacao)"
                 lines.append(f"[{t.value}] {key} -> motor {e.name}{avail}")
     return lines
 
 
+ALL_KEYS = {"all", "tudo", "*", "completo", "full", "todos"}
+
+
 def run(scope: scope_mod.Scope | None = None, confirmed: bool = False,
         dry_run: bool = False, session: Session | None = None,
-        engines: list | None = None) -> AuditResult:
+        engines: list | None = None, rps: float = 5.0,
+        max_per_run: int = 500) -> AuditResult:
     """Executa a auditoria — ou recusa, falhando fechado.
 
     `engines`: se passado (ex.: [] nos testes), sobrepõe o registro para não
-    tocar na rede. Caso contrário usa `engines_for(key)` por teste.
+    tocar na rede. Caso contrário usa `engines_for(key)` por teste; a chave
+    'all'/'tudo' roda TODOS os motores. `rps`/`max_per_run` controlam a
+    intensidade (modo agressivo eleva os dois) — sempre DENTRO do escopo.
     """
     if scope is None:
         scope = scope_mod.load_scope()
@@ -93,7 +100,12 @@ def run(scope: scope_mod.Scope | None = None, confirmed: bool = False,
     executed = False
     for t in scope.targets:
         for key in t.allowed_tests:
-            engs = engines if override else engines_mod.engines_for(key)
+            if override:
+                engs = engines
+            elif key.lower() in ALL_KEYS:
+                engs = engines_mod.all_engines()
+            else:
+                engs = engines_mod.engines_for(key)
             if not engs:
                 sess.add_task({"agent": "coordenador", "objective": f"teste {key}",
                                "target": t.value, "tool": "-", "status": "blocked",
@@ -105,7 +117,8 @@ def run(scope: scope_mod.Scope | None = None, confirmed: bool = False,
                                       "target": t.value, "tool": getattr(e, "requires", None) or e.name,
                                       "allowed_tools": [getattr(e, "requires", None) or "builtin"],
                                       "status": "in_progress", "result_format": "evidencia"})
-                res = engines_mod.run_engine(sess, scope, t, e)
+                res = engines_mod.run_engine(sess, scope, t, e,
+                                             rps=rps, max_per_run=max_per_run)
                 executed = True
                 st = "done" if res.evidence.status.value == "ok" else "not_verified"
                 sess.update_task(task["id"], status=st,
