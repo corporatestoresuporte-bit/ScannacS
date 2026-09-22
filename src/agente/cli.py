@@ -1,167 +1,528 @@
 """Interface de linha de comando do agente.
 
-Uso:  python -m agente <comando>
-      (ou, após `pip install -e .`, apenas `agente <comando>`)
+Uso:  python -m agente <comando>   (ou `agente <comando>` após pip install -e .)
 
-Comandos:
-  version            mostra a versão
-  doctor             checa ambiente (Python, config, prompts, segredos)
-  scope init         cria config/scope.toml a partir do exemplo
-  scope show         mostra o escopo atual
-  scope validate     roda o portão de autorização e explica o veredito
-  prompts list       lista os prompts master registrados
-  audit plan         descreve o que seria executado (não toca na rede)
-  audit run          executa a auditoria (bloqueada sem escopo + --confirm)
+Grupos: version | doctor | ui | session | prompts | scope | audit | exec |
+        evidence | finding | fixtures | hook | integracoes
 """
 
 from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
+from datetime import datetime, timezone
 
 from . import __version__, config
 from . import audit as audit_mod
+from . import context as ctx
 from . import scope as scope_mod
+from .evidence import CollectionStatus, Evidence, preserve_artifact
+from .findings import Finding, can_confirm
+from .store import Session
+from .verdict import EvidenceTier
 
 
-def _print(*a: object) -> None:
+def _p(*a: object) -> None:
     print(*a)
 
 
-def cmd_version(_args: argparse.Namespace) -> int:
-    _print(f"agente-vulnerabilidades {__version__}")
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# version / doctor
+# --------------------------------------------------------------------------- #
+def cmd_version(_a) -> int:
+    _p(f"agente-vulnerabilidades {__version__}")
     return 0
 
 
-def cmd_doctor(_args: argparse.Namespace) -> int:
-    ok = True
-    _print(f"Python              : {sys.version.split()[0]}")
-    _print(f"Raiz do projeto     : {config.ROOT}")
-
-    scope_state = "presente" if config.SCOPE_FILE.exists() else "AUSENTE (use scope init)"
-    _print(f"config/scope.toml   : {scope_state}")
-
-    settings_state = "presente" if config.SETTINGS_FILE.exists() else "ausente (opcional)"
-    _print(f"config/settings.toml: {settings_state}")
-
-    masters = sorted(config.MASTERS_DIR.glob("*")) if config.MASTERS_DIR.exists() else []
-    _print(f"prompts master      : {len(masters)} arquivo(s)")
-
-    env_state = "presente" if config.ENV_FILE.exists() else "ausente (copie de .env.example)"
-    _print(f".env                : {env_state}")
-
-    _print(f"motores de scan     : {len(audit_mod.ENGINES)} registrado(s)")
-
+def cmd_doctor(_a) -> int:
+    _p(f"Python              : {sys.version.split()[0]}")
+    _p(f"Raiz do projeto     : {config.ROOT}")
+    claude = shutil.which("claude")
+    _p(f"Claude Code         : {claude or 'NÃO encontrado no PATH'}")
+    if claude:
+        try:
+            v = subprocess.run([claude, "--version"], capture_output=True,
+                               text=True, timeout=20)
+            _p(f"  versão            : {v.stdout.strip() or v.stderr.strip()}")
+        except Exception as e:  # noqa: BLE001
+            _p(f"  versão            : (falha ao consultar: {e})")
+    _p(f"config/scope.toml   : {'presente' if config.SCOPE_FILE.exists() else 'AUSENTE (scope init)'}")
+    _p(f".env                : {'presente' if config.ENV_FILE.exists() else 'ausente (copie .env.example)'}")
+    masters = ctx.list_masters()
+    _p(f"prompts master      : {len(masters)}")
+    sess = Session.active()
+    _p(f"sessão ativa        : {sess.id if sess else 'nenhuma'}")
+    claude_md = config.ROOT / "CLAUDE.md"
+    settings = config.ROOT / ".claude" / "settings.json"
+    _p(f"CLAUDE.md           : {'presente' if claude_md.exists() else 'ausente'}")
+    _p(f".claude/settings.json: {'presente' if settings.exists() else 'ausente'}")
     gate = audit_mod.preflight()
-    verdict = "LIBERADA" if gate.allowed else "BLOQUEADA"
-    _print(f"auditoria           : {verdict}")
-    return 0 if ok else 1
+    _p(f"auditoria           : {'LIBERADA' if gate.allowed else 'BLOQUEADA'}")
+    return 0
 
 
-def cmd_scope_init(_args: argparse.Namespace) -> int:
+# --------------------------------------------------------------------------- #
+# ui — abre a interface do Claude Code no projeto
+# --------------------------------------------------------------------------- #
+def cmd_ui(a) -> int:
+    claude = shutil.which("claude")
+    if not claude:
+        _p("Claude Code não encontrado no PATH.")
+        _p("Próxima ação: instale/abra o Claude Code e rode `claude --version`.")
+        return 1
+    prompt = a.print or "/auditoria"
+    if a.no_launch:
+        _p(f"[dry-run] abriria: claude -n \"AgenteAuditoria\" \"{prompt}\"  "
+           f"(cwd={config.ROOT})")
+        return 0
+    _p("Abrindo Claude Code no projeto… (Ctrl+C encerra)")
+    try:
+        return subprocess.call([claude, "-n", "AgenteAuditoria", prompt],
+                               cwd=str(config.ROOT))
+    except KeyboardInterrupt:
+        _p("\nInterrompido.")
+        return 130
+
+
+# --------------------------------------------------------------------------- #
+# session
+# --------------------------------------------------------------------------- #
+def cmd_session_new(_a) -> int:
+    scope = scope_mod.load_scope()
+    s = Session.create(
+        environment=(scope.environment if scope else ""),
+        scope_hash=scope_mod.scope_hash(scope),
+        prompts_hash=ctx.manifest_hash(),
+    )
+    _p(f"Sessão criada e ativa: {s.id}")
+    return 0
+
+
+def cmd_session_list(_a) -> int:
+    ids = Session.list_ids()
+    if not ids:
+        _p("Nenhuma sessão.")
+        return 0
+    active = Session.active()
+    for sid in ids:
+        _p(f"  {'* ' if active and active.id == sid else '  '}{sid}")
+    return 0
+
+
+def cmd_session_show(_a) -> int:
+    s = Session.active()
+    if not s:
+        _p("Nenhuma sessão ativa.")
+        return 1
+    m = s.meta()
+    _p(f"sessão   : {s.id}")
+    _p(f"status   : {m.get('status')}")
+    _p(f"ambiente : {m.get('environment') or '-'}")
+    _p(f"tarefas  : {len(s.tasks())} | achados: {len(s.findings())} | "
+       f"evidências: {len(s.evidence())} | suspeitas: {len(s.suspicions())}")
+    # detecta mudança de prompts/escopo desde a criação
+    cur_prompts = ctx.manifest_hash()
+    if m.get("prompts_hash") and m["prompts_hash"] != cur_prompts:
+        _p("AVISO: os prompts master mudaram desde o início da sessão "
+           "(reaplicar contexto).")
+    cur_scope = scope_mod.scope_hash(scope_mod.load_scope())
+    if m.get("scope_hash") and m["scope_hash"] != cur_scope:
+        _p("AVISO: o escopo mudou desde o início da sessão (revalidar).")
+    return 0
+
+
+def cmd_session_resume(a) -> int:
+    s = Session(a.id)
+    if not s.dir.exists():
+        _p(f"Sessão não encontrada: {a.id}")
+        return 1
+    s.set_active()
+    _p(f"Sessão ativa: {s.id}")
+    return cmd_session_show(a)
+
+
+# --------------------------------------------------------------------------- #
+# prompts
+# --------------------------------------------------------------------------- #
+def cmd_prompts_list(_a) -> int:
+    masters = ctx.list_masters()
+    if not masters:
+        _p("Nenhum prompt master. Importe com `prompts import`.")
+        return 0
+    for m in masters:
+        agents = ", ".join(m.agents) or "todos"
+        _p(f"  [{m.order:>3}] {m.path.name} — {m.title} "
+           f"(v{m.meta.get('version','1')}) | agentes: {agents}")
+    _p(f"manifesto: {ctx.manifest_hash(masters)}")
+    return 0
+
+
+def cmd_prompts_import(a) -> int:
+    if a.source == "-":
+        text = sys.stdin.read()
+    else:
+        text = config.ROOT.joinpath(a.source).read_text(encoding="utf-8") \
+            if not a.source.startswith(("/", "\\")) and ":" not in a.source \
+            else open(a.source, encoding="utf-8").read()
+    path = ctx.import_master(text, a.slug, title=a.title, order=a.order,
+                             purpose=a.purpose, agents=a.agents, version=a.version)
+    _p(f"Importado: {path.name}")
+    return 0
+
+
+def cmd_prompts_context(a) -> int:
+    _p(ctx.assemble_context(only_for_agent=a.agent))
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# scope
+# --------------------------------------------------------------------------- #
+def cmd_scope_init(_a) -> int:
     if config.SCOPE_FILE.exists():
-        _print(f"Já existe: {config.SCOPE_FILE} (não sobrescrito).")
+        _p(f"Já existe: {config.SCOPE_FILE}")
         return 0
     if not config.SCOPE_EXAMPLE.exists():
-        _print(f"Modelo não encontrado: {config.SCOPE_EXAMPLE}")
+        _p("Modelo ausente.")
         return 1
     shutil.copyfile(config.SCOPE_EXAMPLE, config.SCOPE_FILE)
-    _print(f"Criado: {config.SCOPE_FILE}")
-    _print("Edite os alvos e defina authorized = true quando você autorizar.")
+    _p(f"Criado: {config.SCOPE_FILE}")
     return 0
 
 
-def cmd_scope_show(_args: argparse.Namespace) -> int:
-    scope = scope_mod.load_scope()
-    if scope is None:
-        _print("Escopo não definido (config/scope.toml ausente).")
+def cmd_scope_show(_a) -> int:
+    s = scope_mod.load_scope()
+    if not s:
+        _p("Escopo não definido.")
         return 1
-    _print(f"authorized   : {scope.authorized}")
-    _print(f"authorized_by: {scope.authorized_by or '-'}")
-    _print(f"authorized_at: {scope.authorized_at or '-'}")
-    _print(f"environment  : {scope.environment or '-'}")
-    _print(f"alvos        : {len(scope.targets)}")
-    for t in scope.targets:
-        _print(f"  - [{t.type}] {t.name or '(sem nome)'} -> {t.value or '(vazio)'}")
+    _p(f"authorized: {s.authorized} | by: {s.authorized_by or '-'} | "
+       f"at: {s.authorized_at or '-'}")
+    _p(f"environment: {s.environment or '-'} | alvos: {len(s.targets)}")
+    for t in s.targets:
+        _p(f"  - [{t.type}] {t.name or '(sem nome)'} -> {t.value} | "
+           f"testes: {', '.join(t.allowed_tests) or '-'}")
     return 0
 
 
-def cmd_scope_validate(_args: argparse.Namespace) -> int:
+def cmd_scope_validate(_a) -> int:
     gate = audit_mod.preflight()
     if gate.allowed:
-        _print("Portão: LIBERADO — escopo válido e autorizado.")
-        _print("A execução ainda exige `audit run --confirm`.")
+        _p("Portão: LIBERADO.")
         return 0
-    _print("Portão: BLOQUEADO. Motivos:")
+    _p("Portão: BLOQUEADO. Motivos:")
     for r in gate.reasons:
-        _print(f"  - {r}")
+        _p(f"  - {r}")
     return 1
 
 
-def cmd_prompts_list(_args: argparse.Namespace) -> int:
-    if not config.MASTERS_DIR.exists():
-        _print("prompts/masters/ não existe.")
+def _load_or_new_scope() -> scope_mod.Scope:
+    return scope_mod.load_scope() or scope_mod.Scope()
+
+
+def cmd_scope_set_env(a) -> int:
+    s = _load_or_new_scope()
+    s.environment = a.environment
+    scope_mod.save_scope(s)
+    _p(f"environment = {a.environment}")
+    return 0
+
+
+def cmd_scope_add_target(a) -> int:
+    s = _load_or_new_scope()
+    t = scope_mod.Target(
+        name=a.name, type=a.type, value=a.value,
+        allowed_tests=[x.strip() for x in (a.tests or "").split(",") if x.strip()],
+        limits=a.limits or "",
+        exclusions=[x.strip() for x in (a.exclusions or "").split(",") if x.strip()],
+        notes=a.notes or "",
+    )
+    problems = t.problems()
+    if problems:
+        _p("Alvo recusado:")
+        for p in problems:
+            _p(f"  - {p}")
         return 1
-    files = sorted(p for p in config.MASTERS_DIR.glob("*") if p.is_file() and p.name != ".gitkeep")
-    if not files:
-        _print("Nenhum prompt master registrado ainda.")
-        return 0
-    for p in files:
-        _print(f"  - {p.name}")
+    s.targets.append(t)
+    scope_mod.save_scope(s)
+    _p(f"Alvo adicionado: [{t.type}] {t.value}")
     return 0
 
 
-def cmd_audit_plan(_args: argparse.Namespace) -> int:
+def cmd_scope_authorize(a) -> int:
+    """DISPARAR AUDITORIA — autorização única (não duplica confirmação)."""
+    s = scope_mod.load_scope()
+    if not s:
+        _p("Escopo ausente — nada a autorizar.")
+        return 1
+    gate = scope_mod.evaluate_gate(scope_mod.Scope(
+        authorized=True, authorized_by=a.by, authorized_at=_now(),
+        environment=s.environment, targets=s.targets))
+    if not gate.allowed:
+        _p("Não é possível autorizar — escopo inválido:")
+        for r in gate.reasons:
+            _p(f"  - {r}")
+        return 1
+    s.authorized = True
+    s.authorized_by = a.by
+    s.authorized_at = _now()
+    scope_mod.save_scope(s)
+    _p(f"AUTORIZADO por {a.by} em {s.authorized_at}.")
+    _p("Esta é a confirmação do escopo (DISPARAR AUDITORIA). "
+       "`audit run` não pedirá confirmação de novo.")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# audit
+# --------------------------------------------------------------------------- #
+def cmd_audit_plan(_a) -> int:
     for line in audit_mod.plan():
-        _print(line)
+        _p(line)
     return 0
 
 
-def cmd_audit_run(args: argparse.Namespace) -> int:
+def cmd_audit_run(a) -> int:
+    scope = scope_mod.load_scope()
+    confirmed = bool(a.confirm) or bool(scope and scope.authorized)
     try:
-        result = audit_mod.run(confirmed=args.confirm)
+        result = audit_mod.run(scope=scope, confirmed=confirmed)
     except audit_mod.AuditBlocked as exc:
-        _print("Auditoria BLOQUEADA:")
+        _p("Auditoria BLOQUEADA:")
         for r in exc.reasons:
-            _print(f"  - {r}")
+            _p(f"  - {r}")
         return 2
     for note in result.notes:
-        _print(note)
-    _print(f"Executada: {result.executed} | achados: {len(result.findings)}")
+        _p(note)
+    _p(f"Executada: {result.executed} | achados: {len(result.findings)}")
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        prog="agente",
-        description="Agente de auditoria de segurança dos próprios ativos.",
+def cmd_audit_status(_a) -> int:
+    s = Session.active()
+    if not s:
+        _p("Nenhuma sessão ativa.")
+        return 1
+    buckets: dict[str, int] = {}
+    for t in s.tasks():
+        buckets[t.get("status", "?")] = buckets.get(t.get("status", "?"), 0) + 1
+    _p(f"Tarefas por estado: {buckets or '(nenhuma)'}")
+    fnd = s.findings()
+    by_status: dict[str, int] = {}
+    for f in fnd:
+        by_status[f.get("status", "?")] = by_status.get(f.get("status", "?"), 0) + 1
+    _p(f"Achados por estado: {by_status or '(nenhum)'}")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# exec — executor controlado com captura de evidência
+# --------------------------------------------------------------------------- #
+def cmd_exec(a) -> int:
+    parts = list(a.command)
+    if parts and parts[0] == "--":
+        parts = parts[1:]
+    command = " ".join(parts).strip()
+    if not command:
+        _p("Nada a executar (use: exec --target X -- <comando>).")
+        return 1
+    scope = scope_mod.load_scope()
+    from .executor import decide, check_and_consume
+    dec = decide(command, scope)
+    if not dec.allow:
+        _p(f"BLOQUEADO pelo executor: {dec.reason}")
+        return 2
+
+    sess = Session.active()
+    if sess is None:
+        _p("Sem sessão ativa — crie com `session new`.")
+        return 1
+
+    # rate-limit por alvo
+    if dec.targets:
+        limits = sess.limits()
+        for h in dec.targets:
+            ok, reason, limits = check_and_consume(limits, h, a.rps, a.max_per_run)
+            if not ok:
+                sess.save_limits(limits)
+                _p(f"BLOQUEADO: {reason}")
+                return 2
+        sess.save_limits(limits)
+
+    status = CollectionStatus.OK
+    try:
+        proc = subprocess.run(command, shell=True, capture_output=True,
+                              text=True, timeout=a.timeout)
+        raw = (proc.stdout or "") + ("\n[stderr]\n" + proc.stderr if proc.stderr else "")
+        rc = proc.returncode
+        if rc != 0:
+            status = CollectionStatus.ERROR
+    except subprocess.TimeoutExpired:
+        raw, rc, status = "(timeout)", None, CollectionStatus.TIMEOUT
+    except Exception as e:  # noqa: BLE001
+        raw, rc, status = f"(erro: {e})", None, CollectionStatus.ERROR
+
+    ev = Evidence(
+        target=a.target, tool=(a.tool or command.split()[0]),
+        params=command, source=a.target,
+        result_summary=(raw[:200].replace("\n", " ") if raw else ""),
+        status=status, tier=EvidenceTier.TOOL_OBSERVED, exit_code=rc,
     )
+    stored = sess.add_evidence(ev.to_dict())
+    ev.id = stored["id"]
+    path, digest = preserve_artifact(sess.artifacts, ev.id, raw or "")
+    # atualiza a evidência com o artefato
+    evs = sess.evidence()
+    for e in evs:
+        if e.get("id") == ev.id:
+            e["artifact_path"], e["artifact_sha256"] = path, digest
+    from .store import write_json
+    write_json(sess.dir / "evidence.json", evs)
+
+    _p(f"Evidência {ev.id} | status={status.value} | exit={rc}")
+    _p(f"Artefato: {path}")
+    return 0 if status == CollectionStatus.OK else 3
+
+
+# --------------------------------------------------------------------------- #
+# evidence / finding
+# --------------------------------------------------------------------------- #
+def cmd_evidence_list(_a) -> int:
+    s = Session.active()
+    if not s:
+        _p("Nenhuma sessão ativa.")
+        return 1
+    for e in s.evidence():
+        _p(f"  {e.get('id')} | {e.get('tool')} -> {e.get('target')} | "
+           f"{e.get('status')} | {e.get('tier')} | {e.get('artifact_path','')}")
+    return 0
+
+
+def cmd_finding_list(_a) -> int:
+    s = Session.active()
+    if not s:
+        _p("Nenhuma sessão ativa.")
+        return 1
+    for f in s.findings():
+        _p(f"  {f.get('id')} | {f.get('status')} | {f.get('severity')} | "
+           f"{f.get('title')}")
+    return 0
+
+
+def cmd_fixtures_run(_a) -> int:
+    from .fixtures import run_fixtures
+    r = run_fixtures()
+    _p(f"Fixtures na sessão {r['session']} (identificadas como TESTE):")
+    _p(f"  achado validado — confirmável? {r['validated_confirmable']}")
+    if r["validated_missing"]:
+        _p(f"    faltando: {r['validated_missing']}")
+    _p(f"  alerta descartado — confirmável? {r['dismissed_confirmable']} "
+       f"(esperado: False)")
+    if r["dismissed_missing"]:
+        _p(f"    faltando: {r['dismissed_missing']}")
+    return 0
+
+
+def cmd_hook(_a) -> int:
+    from .hook import main as hook_main
+    return hook_main()
+
+
+def cmd_integracoes(_a) -> int:
+    doc = config.ROOT / "docs" / "integracoes.md"
+    _p(f"Registro de integrações: {doc}")
+    if doc.exists():
+        _p(doc.read_text(encoding="utf-8")[:1500])
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# parser
+# --------------------------------------------------------------------------- #
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="agente",
+                                description="Agente de auditoria dos próprios ativos.")
     sub = p.add_subparsers(dest="command")
 
-    sub.add_parser("version", help="mostra a versão").set_defaults(func=cmd_version)
-    sub.add_parser("doctor", help="checa o ambiente").set_defaults(func=cmd_doctor)
+    sub.add_parser("version").set_defaults(func=cmd_version)
+    sub.add_parser("doctor").set_defaults(func=cmd_doctor)
 
-    sp = sub.add_parser("scope", help="gerência de escopo")
-    scope_sub = sp.add_subparsers(dest="scope_cmd")
-    scope_sub.add_parser("init", help="cria scope.toml do exemplo").set_defaults(func=cmd_scope_init)
-    scope_sub.add_parser("show", help="mostra o escopo").set_defaults(func=cmd_scope_show)
-    scope_sub.add_parser("validate", help="roda o portão").set_defaults(func=cmd_scope_validate)
+    ui = sub.add_parser("ui", help="abre a interface do Claude Code no projeto")
+    ui.add_argument("--print", default=None, help="prompt inicial (default /auditoria)")
+    ui.add_argument("--no-launch", action="store_true", help="apenas mostra o comando")
+    ui.set_defaults(func=cmd_ui)
 
-    pp = sub.add_parser("prompts", help="prompts master")
-    prompts_sub = pp.add_subparsers(dest="prompts_cmd")
-    prompts_sub.add_parser("list", help="lista os prompts").set_defaults(func=cmd_prompts_list)
+    se = sub.add_parser("session"); se_s = se.add_subparsers(dest="c")
+    se_s.add_parser("new").set_defaults(func=cmd_session_new)
+    se_s.add_parser("list").set_defaults(func=cmd_session_list)
+    se_s.add_parser("show").set_defaults(func=cmd_session_show)
+    r = se_s.add_parser("resume"); r.add_argument("id"); r.set_defaults(func=cmd_session_resume)
 
-    ap = sub.add_parser("audit", help="auditoria")
-    audit_sub = ap.add_subparsers(dest="audit_cmd")
-    audit_sub.add_parser("plan", help="descreve o que seria executado").set_defaults(func=cmd_audit_plan)
-    run_p = audit_sub.add_parser("run", help="executa (bloqueada sem escopo)")
-    run_p.add_argument(
-        "--confirm",
-        action="store_true",
-        help="confirma explicitamente o início da execução",
-    )
-    run_p.set_defaults(func=cmd_audit_run)
+    pr = sub.add_parser("prompts"); pr_s = pr.add_subparsers(dest="c")
+    pr_s.add_parser("list").set_defaults(func=cmd_prompts_list)
+    imp = pr_s.add_parser("import")
+    imp.add_argument("source", help="arquivo ou '-' para stdin")
+    imp.add_argument("slug", help="identificador curto (kebab)")
+    imp.add_argument("--title", default="")
+    imp.add_argument("--order", type=int, default=100)
+    imp.add_argument("--purpose", default="")
+    imp.add_argument("--agents", default="")
+    imp.add_argument("--version", type=int, default=1)
+    imp.set_defaults(func=cmd_prompts_import)
+    cx = pr_s.add_parser("context"); cx.add_argument("--agent", default=None)
+    cx.set_defaults(func=cmd_prompts_context)
+
+    sc = sub.add_parser("scope"); sc_s = sc.add_subparsers(dest="c")
+    sc_s.add_parser("init").set_defaults(func=cmd_scope_init)
+    sc_s.add_parser("show").set_defaults(func=cmd_scope_show)
+    sc_s.add_parser("validate").set_defaults(func=cmd_scope_validate)
+    ev = sc_s.add_parser("set-env"); ev.add_argument("environment")
+    ev.set_defaults(func=cmd_scope_set_env)
+    at = sc_s.add_parser("add-target")
+    at.add_argument("--name", default="")
+    at.add_argument("--type", required=True)
+    at.add_argument("--value", required=True)
+    at.add_argument("--tests", default="")
+    at.add_argument("--limits", default="")
+    at.add_argument("--exclusions", default="")
+    at.add_argument("--notes", default="")
+    at.set_defaults(func=cmd_scope_add_target)
+    au = sc_s.add_parser("authorize", help="DISPARAR AUDITORIA (autorização única)")
+    au.add_argument("--by", required=True)
+    au.set_defaults(func=cmd_scope_authorize)
+
+    ad = sub.add_parser("audit"); ad_s = ad.add_subparsers(dest="c")
+    ad_s.add_parser("plan").set_defaults(func=cmd_audit_plan)
+    ru = ad_s.add_parser("run"); ru.add_argument("--confirm", action="store_true")
+    ru.set_defaults(func=cmd_audit_run)
+    ad_s.add_parser("status").set_defaults(func=cmd_audit_status)
+
+    ex = sub.add_parser("exec", help="executor controlado + captura de evidência")
+    ex.add_argument("--target", required=True)
+    ex.add_argument("--tool", default="")
+    ex.add_argument("--timeout", type=int, default=60)
+    ex.add_argument("--rps", type=float, default=5.0)
+    ex.add_argument("--max-per-run", type=int, default=500, dest="max_per_run")
+    ex.add_argument("command", nargs=argparse.REMAINDER,
+                    help="após --, o comando a executar")
+    ex.set_defaults(func=cmd_exec)
+
+    evd = sub.add_parser("evidence"); evd_s = evd.add_subparsers(dest="c")
+    evd_s.add_parser("list").set_defaults(func=cmd_evidence_list)
+
+    fn = sub.add_parser("finding"); fn_s = fn.add_subparsers(dest="c")
+    fn_s.add_parser("list").set_defaults(func=cmd_finding_list)
+
+    fx = sub.add_parser("fixtures"); fx_s = fx.add_subparsers(dest="c")
+    fx_s.add_parser("run").set_defaults(func=cmd_fixtures_run)
+
+    sub.add_parser("hook").set_defaults(func=cmd_hook)
+    sub.add_parser("integracoes").set_defaults(func=cmd_integracoes)
 
     return p
 

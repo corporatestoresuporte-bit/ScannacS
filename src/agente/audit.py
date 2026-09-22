@@ -100,8 +100,8 @@ def run(scope: scope_mod.Scope | None = None, confirmed: bool = False) -> AuditR
                 title="Auditoria não executada (sem motores)",
                 status=Status.NOT_CHECKED,
                 severity=Severity.INFO,
-                evidence="Fase de fundação: ENGINES vazio.",
-                impact="Nenhum — nenhuma verificação foi realizada.",
+                impact="Nenhum — nenhuma verificação foi realizada "
+                       "(fase de fundação: ENGINES vazio).",
                 remediation="Registrar motores reais e reexecutar.",
             )
             for t in (gate.scope.targets if gate.scope else [])

@@ -1,0 +1,41 @@
+{
+  "$comment": "Configuração de projeto do agente-vulnerabilidades. O hook PreToolUse é o executor controlado: bloqueia ações de rede fora do escopo ou antes da autorização. Mescla com as settings do usuário.",
+  "env": {
+    "PYTHONPATH": "src"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python -m agente:*)",
+      "Bash(python tools/guard.py)",
+      "Bash(agente:*)",
+      "Read(//**)"
+    ],
+    "deny": [
+      "Read(./.env)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/guard.py",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python tools/guard.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

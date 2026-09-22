@@ -102,6 +102,51 @@ class Scope:
         )
 
 
+def _toml_str(s: str) -> str:
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _toml_list(items: list[str]) -> str:
+    return "[" + ", ".join(_toml_str(x) for x in items) + "]"
+
+
+def to_toml(scope: "Scope") -> str:
+    """Serializa o escopo para TOML (schema conhecido do projeto)."""
+    lines = [
+        f"authorized = {'true' if scope.authorized else 'false'}",
+        f"authorized_by = {_toml_str(scope.authorized_by)}",
+        f"authorized_at = {_toml_str(scope.authorized_at)}",
+        f"environment = {_toml_str(scope.environment)}",
+    ]
+    for t in scope.targets:
+        lines += [
+            "",
+            "[[targets]]",
+            f"name = {_toml_str(t.name)}",
+            f"type = {_toml_str(t.type)}",
+            f"value = {_toml_str(t.value)}",
+            f"allowed_tests = {_toml_list(t.allowed_tests)}",
+            f"limits = {_toml_str(t.limits)}",
+            f"exclusions = {_toml_list(t.exclusions)}",
+            f"notes = {_toml_str(t.notes)}",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def save_scope(scope: "Scope", path: Path | None = None) -> Path:
+    path = path or config.SCOPE_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(to_toml(scope), encoding="utf-8")
+    return path
+
+
+def scope_hash(scope: "Scope | None") -> str:
+    import hashlib
+    if scope is None:
+        return ""
+    return hashlib.sha256(to_toml(scope).encode("utf-8")).hexdigest()
+
+
 @dataclass
 class GateResult:
     """Resultado do portão de autorização."""

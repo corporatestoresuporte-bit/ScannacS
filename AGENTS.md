@@ -86,3 +86,25 @@ Diferenciar sempre suspeita × confirmado × verificação não realizada.
 3. Definir alvos/escopo + autorizar.
 4. Escolher IA + scanners (registrar motores).
 5. Executar auditorias sob demanda e entregar relatórios com evidência.
+
+## 8. Interface e execução (integração Claude Code)
+
+- A interface é a **nativa do Claude Code**, aberta por `iniciar.ps1` /
+  `Abrir-Agente.cmd` / `agente ui`. O coordenador é a sessão principal
+  ([CLAUDE.md](CLAUDE.md)); os especialistas são subagentes em `.claude/agents/`.
+- **Executor controlado (spec §8):** toda ação externa passa por `agente exec`
+  e/ou pelo hook `PreToolUse` (`tools/guard.py` → `agente.hook`), configurado em
+  `.claude/settings.json`. Ele bloqueia rede fora do escopo, antes da
+  autorização, com host escondido por substituição de comando, ou que tente
+  alterar a configuração/evidência. O hook só é IMPOSTO após o workspace ser
+  confiável no Claude Code (aceite o trust na 1ª abertura); a CLI `agente exec`
+  aplica o escopo independentemente.
+- **DISPARAR AUDITORIA** = `agente scope authorize --by <nome>`: autorização
+  única, que também é a confirmação do `audit run` (sem confirmação dupla).
+- **Portão de confirmação em código:** `agente.findings.can_confirm` recusa
+  publicar achado sem alvo, evidência utilizável, validação, veredito
+  `is_true_positive=True`, tipo de confirmação e (se citada) CVE com fonte +
+  aplicabilidade. Explorabilidade exige evidência reproduzida.
+- **Componentes de terceiros** (RAPTOR MIT; coleção de skills Apache-2.0):
+  ver [docs/integracoes.md](docs/integracoes.md) e `THIRD_PARTY_LICENSES/`.
+  Carregue só a skill pertinente a cada tarefa para poupar contexto.

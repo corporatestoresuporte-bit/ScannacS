@@ -1,91 +1,102 @@
 # agente-vulnerabilidades
 
 Agente de **auditoria de segurança dos meus próprios ativos** — sites, domínios
-e VPS. Uso estritamente autorizado, contra alvos que eu mesmo defino.
+e VPS — com **interface interativa integrada ao Claude Code**. Uso estritamente
+autorizado, contra alvos que eu mesmo defino.
 
-Este repositório é a **fundação**: base modular em Python com CLI, portão de
-autorização e cadastro de escopo. O **provedor de IA** e os **scanners reais**
-são escolhidos depois, junto com os prompts master.
+> ⚠️ **Nada é auditado sem escopo definido + autorização explícita
+> (`DISPARAR AUDITORIA`) + execução via executor controlado.** O portão nega por
+> padrão (fail-closed). A máquina de desenvolvimento nunca é alvo implícito.
 
-> ⚠️ **Nada é auditado sem escopo definido + autorização explícita + confirmação
-> na execução.** O portão nega por padrão (fail-closed). A máquina de
-> desenvolvimento nunca é alvo implícito.
+## Como abrir
 
----
+No PowerShell, dentro da pasta do projeto:
 
-## Objetivo
+```powershell
+.\iniciar.ps1
+```
 
-- Auditar apenas ativos **meus**, listados de forma **exata** no escopo.
-- Produzir achados com **evidência, impacto, reprodução e correção**.
-- Separar claramente **suspeita**, **confirmado** e **não verificado**.
-- Manter **credenciais fora** do código, do Git e dos relatórios.
+Ou dê duplo-clique em **`Abrir-Agente.cmd`**. Ou, de dentro do ambiente:
+
+```powershell
+agente ui          # (ou: python -m agente ui)
+```
+
+O iniciador verifica Python e Claude Code, prepara o ambiente (PYTHONPATH),
+mostra um resumo do projeto e abre a **interface nativa do Claude Code** já na
+conversa de configuração (`/auditoria`). Abordagem inspirada no iniciador do
+RAPTOR, reimplementada em PowerShell (Windows/PowerShell; espaços e acentos no
+caminho são suportados; `Ctrl+C` encerra sem deixar processo filho).
+
+> **1ª vez — confiança do workspace:** ao abrir `claude` aqui pela primeira vez,
+> aceite o diálogo de *trust*. Sem isso o Claude Code ignora as permissões e o
+> **hook** do projeto (o executor controlado só é IMPOSTO na sessão após o
+> workspace ser confiável). A CLI `agente exec` aplica o escopo de qualquer forma.
+
+## O que este projeto faz
+
+- **Coordenador + agentes** (Claude Code): `investigador-web`, `investigador-api`,
+  `investigador-auth`, `investigador-infra` e `validador-achados` (adversarial).
+- **Executor controlado**: toda ação externa passa por `agente exec` e por um
+  hook `PreToolUse` que bloqueia rede fora do escopo ou antes da autorização.
+- **Evidência obrigatória**: hipótese começa como SUSPEITA; só confirma com
+  evidência de ferramenta + artefato preservado + validação (portão em código).
+- **Prompts master**: importados, versionados e montados em contexto rastreável.
+- **Sessões**: tarefas, achados, evidências e limites persistidos; retomáveis.
+- **Componentes de dois repositórios** incorporados (RAPTOR + coleção de skills
+  de segurança) — registro completo em [docs/integracoes.md](docs/integracoes.md).
 
 ## Requisitos
 
-- Python **3.11+** (usa `tomllib` da stdlib). A base **não tem dependências
-  externas**.
-- Windows/PowerShell hoje; preparado para Linux depois.
+- Python **3.11+** (base sem dependências externas; usa `tomllib`).
+- **Claude Code** no PATH (testado com 2.1.280).
+- Windows/PowerShell (preparado para Linux depois).
 
-## Instalação
+## Fluxo de uso
 
-```powershell
-cd "$env:USERPROFILE\Documents\agente-vulnerabilidades"
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+1. Abrir (`.\iniciar.ps1`). O coordenador consulta o estado e pergunta só o que
+   falta, em português, uma pergunta por vez.
+2. **Prompts master** → salvos em `prompts/masters/` (originais preservados).
+3. **Alvos e escopo** → ativos EXATOS, ambiente, testes permitidos, limites,
+   exclusões (gravados em `config/scope.toml`).
+4. Resumo do escopo e do plano.
+5. Digitar **`DISPARAR AUDITORIA`** → autoriza (autorização única) e inicia.
+6. Conversar com o coordenador, ver progresso, interromper. Mudou alvo/permissão
+   → escopo é atualizado e revalidado antes de novos testes.
 
-# Opcional (instala o comando `agente`):
-pip install -e .
-```
+## Comandos (CLI)
 
-Sem instalar, dá para rodar apontando o `PYTHONPATH` para `src`:
-
-```powershell
-$env:PYTHONPATH="src"; python -m agente version
-```
-
-Configuração local (arquivos git-ignorados):
-
-```powershell
-copy .env.example .env
-python -m agente scope init      # cria config/scope.toml a partir do modelo
-```
-
-## Comandos
-
-| Comando                     | O que faz                                                        |
-|-----------------------------|------------------------------------------------------------------|
-| `agente version`            | Mostra a versão.                                                 |
-| `agente doctor`             | Checa ambiente: Python, config, prompts, `.env`, estado do gate. |
-| `agente scope init`         | Cria `config/scope.toml` a partir do exemplo.                    |
-| `agente scope show`         | Mostra o escopo atual.                                           |
-| `agente scope validate`     | Roda o portão e explica por que está liberado/bloqueado.        |
-| `agente prompts list`       | Lista os prompts master registrados.                            |
-| `agente audit plan`         | Descreve o que **seria** executado por alvo (não toca na rede).  |
-| `agente audit run --confirm`| Executa a auditoria (bloqueada sem escopo + confirmação).       |
-
-(Sem `pip install -e .`, troque `agente` por `python -m agente`.)
+| Comando | Função |
+|---|---|
+| `agente doctor` | Ambiente: Python, Claude Code, config, sessão, gate. |
+| `agente ui` | Abre a interface do Claude Code no projeto. |
+| `agente session new/show/list/resume` | Sessões (persistência/retomada). |
+| `agente prompts list/import/context` | Prompts master + contexto rastreável. |
+| `agente scope init/show/validate/set-env/add-target/authorize` | Escopo. |
+| `agente audit plan/run/status` | Plano, execução (gated), progresso. |
+| `agente exec --target T -- <cmd>` | Executor controlado + captura de evidência. |
+| `agente evidence list` / `finding list` | Evidências e achados da sessão. |
+| `agente fixtures run` | Fixtures de teste (1 descartado + 1 validado). |
+| `agente integracoes` | Registro de componentes de terceiros. |
 
 ## Estrutura
 
 ```
 agente-vulnerabilidades/
-├─ README.md              # este arquivo
-├─ AGENTS.md              # como o agente funciona e é desenvolvido
-├─ pyproject.toml         # empacotamento + comando `agente`
-├─ requirements.txt       # base sem deps; ferramentas/scanners depois
-├─ .env.example           # modelo de segredos (copie p/ .env)
-├─ .gitignore             # protege segredos e saídas
-├─ prompts/
-│  ├─ README.md           # índice dos prompts master (finalidade + ordem)
-│  └─ masters/            # prompts master, um arquivo por original
-├─ config/
-│  ├─ scope.example.toml  # modelo de escopo (alvos vazios)
-│  └─ settings.example.toml
-├─ src/agente/            # código-base modular
-│  ├─ cli.py  config.py  scope.py  audit.py  findings.py  logging_utils.py
-├─ tests/                 # verificações da base (stdlib, unittest)
-├─ reports/               # saídas de auditoria (git-ignorado)
-└─ logs/                  # logs com redação de segredos (git-ignorado)
+├─ iniciar.ps1  Abrir-Agente.cmd     # abertura
+├─ CLAUDE.md  AGENTS.md              # instruções (coordenador / desenvolvimento)
+├─ .claude/
+│  ├─ settings.json                  # hook PreToolUse (executor controlado)
+│  ├─ commands/auditoria.md          # /auditoria (fluxo de abertura)
+│  ├─ agents/*.md                    # coordenador + investigadores + validador
+│  └─ skills/                        # skills incorporadas + triagem/coordenação
+├─ src/agente/                       # CLI + escopo + executor + evidência + ...
+├─ prompts/masters/                  # prompts master (originais)
+├─ config/                           # scope.example.toml / settings.example.toml
+├─ docs/integracoes.md               # registro de integrações (2 repos)
+├─ THIRD_PARTY_LICENSES/             # MIT (RAPTOR) + Apache-2.0 (skills)
+├─ tests/                            # 55 testes (unittest, stdlib)
+├─ reports/  logs/                   # saídas/sessões (git-ignorado)
 ```
 
 ## Testes
@@ -94,13 +105,8 @@ agente-vulnerabilidades/
 $env:PYTHONPATH="src"; python -m unittest discover -s tests -v
 ```
 
-## Próximas etapas
+## Segurança e escopo
 
-1. **Receber os prompts master** → salvar cada original em `prompts/masters/`
-   e registrar finalidade/ordem em `prompts/README.md`.
-2. **Definir alvos e escopo** em `config/scope.toml` (ativos exatos, ambiente,
-   testes permitidos, limites, exclusões) e `authorized = true`.
-3. **Escolher provedor de IA e scanners** e registrá-los como motores.
-4. **Executar auditorias** sob demanda, com `audit run --confirm`.
-
-Segurança e escopo em detalhe: veja [AGENTS.md](AGENTS.md).
+Detalhes em [AGENTS.md](AGENTS.md) (regras de operação) e
+[CLAUDE.md](CLAUDE.md) (coordenação). Créditos e licenças de terceiros em
+[docs/integracoes.md](docs/integracoes.md) e `THIRD_PARTY_LICENSES/`.
