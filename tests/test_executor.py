@@ -23,6 +23,17 @@ class TestExecutor(unittest.TestCase):
         self.assertTrue(decide("ls -la", _scope()).allow)
         self.assertTrue(decide("python -m agente version", None).allow)
 
+    def test_local_grep_with_network_keyword_allowed(self):
+        # BUGFIX: grep/cat mencionando curl/http como ARGUMENTO é LOCAL.
+        self.assertFalse(uses_network('grep -rE "curl|wget|http://" .'))
+        self.assertTrue(decide('grep -rE "curl|wget" .', _scope()).allow)
+        self.assertTrue(decide('cat urls.txt', _scope()).allow)
+        self.assertFalse(uses_network('python scan.py https://x.com'))
+
+    def test_network_when_tool_is_executable(self):
+        self.assertTrue(uses_network("curl https://meusite.com"))
+        self.assertTrue(uses_network("ls; nmap meusite.com"))
+
     def test_network_without_scope_denied(self):
         d = decide("curl -sI https://meusite.com", None)
         self.assertFalse(d.allow)

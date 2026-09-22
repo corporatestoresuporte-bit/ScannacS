@@ -25,11 +25,14 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from . import config
 from .evidence import CollectionStatus, Evidence, preserve_artifact
-from .executor import check_and_consume, decide
+from .executor import check_and_consume, decide, uses_network
 from .findings import Finding, Severity, Status
 from .scope import Scope, Target
 from .verdict import EvidenceTier
+
+WORDLIST = config.ROOT / "data" / "wordlists" / "comum.txt"
 
 # Ferramentas externas conhecidas (nome do binário no PATH).
 EXTERNAL_TOOLS = [
@@ -231,8 +234,52 @@ def _external() -> list[ExternalToolEngine]:
     ]
 
 
+class ContentDiscoveryEngine(Engine):
+    """Descoberta de conteúdo / força-bruta de caminhos (ffuf ou gobuster).
+
+    Usa a wordlist embutida (data/wordlists/comum.txt). Prefere ffuf; cai para
+    gobuster. Roda faseado, com escopo + rate-limit, como qualquer motor.
+    """
+
+    name = "descoberta-conteudo"
+    keys = ("conteudo", "content", "fuzz", "dirscan", "descoberta",
+            "bruteforce", "forca-bruta", "brute-force", "diretorios")
+
+    def available(self) -> bool:
+        return shutil.which("ffuf") is not None or shutil.which("gobuster") is not None
+
+    def _tool(self) -> str | None:
+        if shutil.which("ffuf"):
+            return "ffuf"
+        if shutil.which("gobuster"):
+            return "gobuster"
+        return None
+
+    def command(self, target: Target) -> str:
+        url = _url(target).rstrip("/")
+        wl = str(WORDLIST)
+        if shutil.which("ffuf"):
+            return (f'ffuf -w "{wl}" -u {url}/FUZZ '
+                    f'-mc 200,201,204,301,302,307,401,403 -t 20 -s')
+        if shutil.which("gobuster"):
+            return f'gobuster dir -u {url} -w "{wl}" -q -t 20'
+        return f'[indisponível] ffuf/gobuster não instalados ({url})'
+
+    def interpret(self, target, raw, status):
+        if status != CollectionStatus.OK or not raw.strip():
+            return []
+        return [Finding(
+            target=target.value,
+            title="Caminhos/recursos descobertos (revisar saída)",
+            status=Status.SUSPECTED, severity=Severity.INFO,
+            impact="Recursos expostos podem revelar admin/backup/config.",
+            remediation="Revisar cada caminho e restringir o que não deve ser público.",
+            engine=self.name)]
+
+
 def all_engines() -> list[Engine]:
-    return [HeadersEngine(), TlsEngine(), HttpFingerprintEngine(), *_external()]
+    return [HeadersEngine(), TlsEngine(), HttpFingerprintEngine(),
+            ContentDiscoveryEngine(), *_external()]
 
 
 def engines_for(test_key: str) -> list[Engine]:
@@ -247,21 +294,22 @@ def run_engine(session, scope: Scope, target: Target, engine: Engine,
     """Roda um motor contra um alvo, com escopo + rate-limit + evidência."""
     host = _host(target)
     command = engine.command(target)
+    tool_label = getattr(engine, "requires", None) or engine.name
 
-    # 1) motor externo indisponível -> limitação (não é achado)
-    if engine.requires and shutil.which(engine.requires) is None:
-        ev = Evidence(target=target.value, tool=engine.requires, params=command,
+    # 1) motor indisponível (ferramenta ausente) -> limitação, não achado
+    if not engine.available():
+        ev = Evidence(target=target.value, tool=tool_label, params=command,
                       source=target.value,
-                      result_summary=f"ferramenta {engine.requires} não instalada",
+                      result_summary=f"ferramenta ausente para {engine.name}",
                       status=CollectionStatus.NO_ACCESS, tier=EvidenceTier.HEURISTIC)
-        stored = session.add_evidence(ev.to_dict())
+        session.add_evidence(ev.to_dict())
         return EngineResult(evidence=ev, suspicions=[])
 
-    # 2) escopo (apenas comandos reais de ferramenta passam pelo executor)
-    if engine.requires:
+    # 2) escopo: TODO comando de rede passa pelo executor controlado
+    if uses_network(command):
         dec = decide(command, scope)
         if not dec.allow:
-            ev = Evidence(target=target.value, tool=engine.requires, params=command,
+            ev = Evidence(target=target.value, tool=tool_label, params=command,
                           source=target.value,
                           result_summary=f"bloqueado pelo executor: {dec.reason}",
                           status=CollectionStatus.NO_ACCESS, tier=EvidenceTier.HEURISTIC)

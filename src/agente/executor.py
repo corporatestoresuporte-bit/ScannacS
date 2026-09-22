@@ -73,25 +73,46 @@ class Decision:
     targets: tuple[str, ...] = ()
 
 
-def _first_token(command: str) -> str:
-    cmd = command.strip()
-    # remove prefixos comuns de shell
+# separadores de segmentos de shell (pipe, ;, &&, ||, nova linha)
+_SEG_SPLIT = re.compile(r"\|\||&&|[|;&\n]")
+
+
+def _strip_quoted(command: str) -> str:
+    """Remove trechos entre aspas (são argumentos, não o comando executado).
+
+    Sem isso, um padrão como grep -E "curl|http" seria fatiado no '|' de dentro
+    das aspas e um argumento viraria falso "comando de rede".
+    """
+    return re.sub(r'"[^"]*"|\'[^\']*\'', " ", command)
+
+
+def _segments(command: str) -> list[str]:
+    return [s.strip() for s in _SEG_SPLIT.split(_strip_quoted(command)) if s.strip()]
+
+
+def _exe(segment: str) -> str:
+    """Nome do executável de UM segmento (sem caminho, minúsculo)."""
+    seg = segment.strip()
     for lead in ("sudo ", "time ", "env "):
-        if cmd.lower().startswith(lead):
-            cmd = cmd[len(lead):].strip()
-    m = re.match(r"[\"']?([^\s\"']+)", cmd)
-    tok = (m.group(1) if m else cmd).lower()
+        if seg.lower().startswith(lead):
+            seg = seg[len(lead):].strip()
+    m = re.match(r"[\"']?([^\s\"']+)", seg)
+    tok = (m.group(1) if m else seg).lower()
     return tok.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
 
 
+def _first_token(command: str) -> str:
+    return _exe(command)
+
+
 def uses_network(command: str) -> bool:
-    """O comando invoca alguma ferramenta de rede/externa?"""
-    low = command.lower()
-    tokens = set(re.findall(r"[a-z0-9_.-]+", low))
-    if tokens & NETWORK_TOOLS:
-        return True
-    # URL explícita também conta.
-    return bool(_URL_RE.search(command))
+    """É ação de rede? SÓ quando a FERRAMENTA EXECUTADA é de rede.
+
+    Corrige o over-block: `grep "curl" arq`, `cat url.txt`, `python x.py` são
+    LOCAIS mesmo mencionando curl/URL como argumento — só conta se o executável
+    de algum segmento for uma ferramenta de rede.
+    """
+    return any(_exe(seg) in NETWORK_TOOLS for seg in _segments(command))
 
 
 def extract_hosts(command: str) -> list[str]:
