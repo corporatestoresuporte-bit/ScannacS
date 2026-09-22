@@ -19,6 +19,15 @@ vez por alvo), roda **todos os motores instalados** e imprime o relatório. Não
 precisa do Claude. Instalação e ferramentas: veja **[INSTALL.md](INSTALL.md)**
 (no Windows, `.\instalar.ps1` cria o atalho `scan` e checa tudo).
 
+Com análise do código-fonte (o risco real de SPA+Supabase — segredo no bundle,
+`service_role` no client, RLS, XSS):
+
+```bash
+scan exemplo.com --code C:\caminho\do\repo
+# só o código, sem rede:
+python -m agente review-code C:\caminho\do\repo
+```
+
 Sem instalar: `PYTHONPATH=src python -m agente scan exemplo.com`.
 
 ## Como abrir (modo conversa com Claude Code)
@@ -100,6 +109,9 @@ ferramenta → verificação inconclusiva (limitação), nunca achado inventado.
 | `agente session new/show/list/resume` | Sessões (persistência/retomada). |
 | `agente prompts list/import/context` | Prompts master + contexto rastreável. |
 | `agente scope init/show/validate/set-env/add-target/authorize` | Escopo. |
+| `agente scan <alvo> [--code <pasta>]` | Auditoria ponta a ponta (posse → roda tudo → relatório). |
+| `agente review-code <pasta>` | Análise de código local: segredo/service_role/RLS/XSS. |
+| `agente report` | Relatório da sessão ativa. |
 | `agente tools` | Lista motores embutidos + ferramentas externas detectadas. |
 | `agente prompts import-inbox` | Importa prompts de `prompts/inbox/`. |
 | `agente audit plan/run/status` | Plano, execução (gated), progresso. |
