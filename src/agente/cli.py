@@ -9,6 +9,7 @@ Grupos: version | doctor | ui | session | prompts | scope | audit | exec |
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -416,7 +417,8 @@ def cmd_exec(a) -> int:
     status = CollectionStatus.OK
     try:
         proc = subprocess.run(command, shell=True, capture_output=True,
-                              text=True, timeout=a.timeout)
+                              text=True, encoding="utf-8", errors="replace",
+                              timeout=a.timeout)
         raw = (proc.stdout or "") + ("\n[stderr]\n" + proc.stderr if proc.stderr else "")
         rc = proc.returncode
         if rc != 0:
@@ -499,9 +501,86 @@ def cmd_tools(_a) -> int:
     return 0
 
 
+def cmd_scan(a) -> int:
+    argv: list[str] = []
+    if a.target:
+        argv.append(a.target)
+    if a.yes:
+        argv.append("-y")
+    if a.calm:
+        argv.append("--calm")
+    return scan_main(argv)
+
+
 def cmd_hook(_a) -> int:
     from .hook import main as hook_main
     return hook_main()
+
+
+# --------------------------------------------------------------------------- #
+# report — relatório de ponta a ponta a partir da sessão
+# --------------------------------------------------------------------------- #
+def _classify_evidence(evs: list) -> tuple[list, list, list]:
+    """(rodou_ok, inconclusivos, nao_instalados) a partir das evidências."""
+    ok, incon, missing = [], [], []
+    for e in evs:
+        st = e.get("status")
+        tool = e.get("tool", "?")
+        summ = (e.get("result_summary") or "").lower()
+        if st == "ok":
+            ok.append(tool)
+        elif "ausente" in summ or "não instalada" in summ or "nao instalada" in summ:
+            missing.append(tool)
+        else:
+            incon.append((tool, st, e.get("result_summary", "")[:80]))
+    return ok, incon, missing
+
+
+def print_report(sess: Session) -> None:
+    m = sess.meta()
+    scope = scope_mod.load_scope()
+    tgt = scope.targets[0].value if (scope and scope.targets) else "-"
+    verified = any(t.owner_verified for t in scope.targets) if scope else False
+    findings = sess.findings()
+    confirmados = [f for f in findings if f.get("status") == "confirmado"]
+    suspeitas = [f for f in findings if f.get("status") == "suspeita"]
+    descartados = [f for f in findings if f.get("status") == "descartado"]
+    ok, incon, missing = _classify_evidence(sess.evidence())
+
+    _p("=" * 56)
+    _p(f" RELATÓRIO — {tgt}")
+    _p(f" sessão {sess.id} | posse {'verificada' if verified else 'NÃO verificada'}")
+    _p("=" * 56)
+    _p(f"\nCONFIRMADOS (com evidência): {len(confirmados)}")
+    for f in confirmados:
+        _p(f"  - [{f.get('severity')}] {f.get('title')}")
+    _p(f"\nSUSPEITAS (precisam validação): {len(suspeitas)}")
+    for f in suspeitas:
+        ev = ", ".join(f.get("evidence_ids", []))
+        _p(f"  - [{f.get('severity')}] {f.get('title')}"
+           f"{(' (evi: ' + ev + ')') if ev else ''}")
+    if descartados:
+        _p(f"\nDESCARTADOS (refutados): {len(descartados)}")
+        for f in descartados:
+            _p(f"  - {f.get('title')}")
+    if incon:
+        _p(f"\nINCONCLUSIVOS (não terminaram/erro): {len(incon)}")
+        for tool, st, why in incon:
+            _p(f"  - {tool}: {st} — {why}")
+    if missing:
+        _p(f"\nNÃO RODARAM (ferramenta não instalada): {', '.join(sorted(set(missing)))}")
+    _p(f"\nCOBERTURA: motores OK: {', '.join(sorted(set(ok))) or '-'}")
+    _p("AVISO: relatório sem achado NÃO prova ausência de vulnerabilidade — "
+       "só cobre o que foi testado.")
+
+
+def cmd_report(_a) -> int:
+    s = Session.active()
+    if not s:
+        _p("Nenhuma sessão ativa.")
+        return 1
+    print_report(s)
+    return 0
 
 
 def cmd_integracoes(_a) -> int:
@@ -599,11 +678,120 @@ def build_parser() -> argparse.ArgumentParser:
     fx = sub.add_parser("fixtures"); fx_s = fx.add_subparsers(dest="c")
     fx_s.add_parser("run").set_defaults(func=cmd_fixtures_run)
 
+    sca = sub.add_parser("scan", help="auditoria ponta a ponta (posse + roda tudo)")
+    sca.add_argument("target", nargs="?")
+    sca.add_argument("-y", "--yes", action="store_true")
+    sca.add_argument("--calm", action="store_true")
+    sca.set_defaults(func=cmd_scan)
     sub.add_parser("tools", help="lista motores/ferramentas detectadas").set_defaults(func=cmd_tools)
+    sub.add_parser("report", help="relatório da sessão ativa").set_defaults(func=cmd_report)
     sub.add_parser("hook").set_defaults(func=cmd_hook)
     sub.add_parser("integracoes").set_defaults(func=cmd_integracoes)
 
     return p
+
+
+# --------------------------------------------------------------------------- #
+# scan — entrada única, ponta a ponta, com PROVA DE POSSE OBRIGATÓRIA
+# --------------------------------------------------------------------------- #
+def scan_main(argv: list[str] | None = None) -> int:
+    """`scan [alvo]` — auditoria dos SEUS ativos.
+
+    Exige prova de posse (token em arquivo ou DNS TXT) para QUALQUER alvo antes
+    de testar. É o que torna a ferramenta segura para distribuir: não é possível
+    escanear um host que você não controla.
+    """
+    ap = argparse.ArgumentParser(
+        prog="scan",
+        description="Auditoria de segurança ponta a ponta dos SEUS ativos "
+                    "(exige prova de posse do alvo).")
+    ap.add_argument("target", nargs="?", help="site/servidor (ex.: exemplo.com)")
+    ap.add_argument("-y", "--yes", action="store_true", help="não perguntar")
+    ap.add_argument("--calm", action="store_true", help="intensidade normal")
+    a = ap.parse_args(argv)
+
+    target = a.target
+    if not target:
+        try:
+            target = input("Qual site ou servidor vamos analisar? ").strip()
+        except EOFError:
+            target = ""
+    if not target:
+        _p("Nenhum alvo informado.")
+        return 1
+
+    host = scope_mod._host_of(target)
+    if target.startswith(("http://", "https://")):
+        ttype = "url"
+    elif re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host):
+        ttype = "ip"
+    else:
+        ttype = "domain"
+
+    scope = scope_mod.load_scope() or scope_mod.Scope()
+    existing = next((t for t in scope.targets
+                     if scope_mod._host_of(t.value) == host), None)
+    if existing is None:
+        t = scope_mod.Target(name=host, type=ttype, value=target,
+                             allowed_tests=["all"])
+        probs = t.problems()
+        if probs:
+            _p("Alvo recusado:")
+            for p in probs:
+                _p(f"  - {p}")
+            return 1
+        scope.targets.append(t)
+        existing = t
+        scope_mod.save_scope(scope)
+    elif "all" not in [x.lower() for x in existing.allowed_tests]:
+        existing.allowed_tests = ["all"]
+        scope_mod.save_scope(scope)
+
+    # PROVA DE POSSE OBRIGATÓRIA (todo alvo) — impede uso contra terceiros
+    if not existing.owner_verified:
+        ok, method, _ = scope_mod.verify_ownership(existing.value)
+        if ok:
+            existing.owner_verified = True
+            existing.owner_verified_at = _now()
+            scope_mod.save_scope(scope)
+            _p(f"Posse confirmada ({method}).")
+        else:
+            token = scope_mod.expected_token(existing.value)
+            _p(f"Antes de testar, prove que {host} é seu (uma vez só).")
+            _p(f"Publique o token e rode 'scan {target}' de novo:")
+            _p(f"  Arquivo: https://{host}/rz-audit-verify.txt  ->  {token}")
+            _p(f"  ou registro DNS TXT em {host}  ->  {token}")
+            return 2
+
+    if not a.yes:
+        _p(f"Vou auditar {existing.value} com todos os motores instalados. "
+           "Nada sai do seu alvo.")
+        try:
+            resp = input("Comecar? (s/N) ").strip().lower()
+        except EOFError:
+            resp = ""
+        if resp not in ("s", "sim", "y", "yes", "iniciar"):
+            _p("Cancelado.")
+            return 0
+
+    scope.authorized = True
+    scope.authorized_by = "dono"
+    scope.authorized_at = _now()
+    scope_mod.save_scope(scope)
+
+    sess = Session.create(environment=scope.environment or "producao",
+                          scope_hash=scope_mod.scope_hash(scope))
+    _p("Rodando auditoria ponta a ponta... (pode levar alguns minutos)")
+    rps, maxrun = (5.0, 500) if a.calm else (50.0, 100000)
+    try:
+        audit_mod.run(scope=scope, confirmed=True, session=sess,
+                      rps=rps, max_per_run=maxrun)
+    except audit_mod.AuditBlocked as exc:
+        _p("Bloqueado: " + "; ".join(exc.reasons))
+        return 2
+    _p("")
+    print_report(sess)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

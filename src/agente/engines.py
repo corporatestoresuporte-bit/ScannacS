@@ -77,6 +77,7 @@ class Engine:
     name = "engine"
     keys: tuple[str, ...] = ()
     requires: str | None = None   # ferramenta externa exigida, se houver
+    timeout: int = 120            # teto de tempo por execução (s)
 
     def available(self) -> bool:
         return self.requires is None or shutil.which(self.requires) is not None
@@ -188,12 +189,14 @@ class HttpFingerprintEngine(Engine):
 class ExternalToolEngine(Engine):
     """Wrapper genérico: roda o binário se existir; senão, limitação."""
 
-    def __init__(self, name, keys, requires, template, tier=EvidenceTier.TOOL_OBSERVED):
+    def __init__(self, name, keys, requires, template, tier=EvidenceTier.TOOL_OBSERVED,
+                 timeout=120):
         self.name = name
         self.keys = keys
         self.requires = requires
         self._template = template
         self._tier = tier
+        self.timeout = timeout
 
     def command(self, target: Target) -> str:
         return self._template.format(host=_host(target), url=_url(target))
@@ -217,11 +220,12 @@ class ExternalToolEngine(Engine):
 def _external() -> list[ExternalToolEngine]:
     return [
         ExternalToolEngine("nmap", ("portas", "ports", "nmap"), "nmap",
-                           "nmap -Pn -T4 -F {host}"),
+                           "nmap -Pn -T4 -F {host}", timeout=300),
         ExternalToolEngine("nuclei", ("nuclei", "vuln-scan"), "nuclei",
-                           "nuclei -silent -u {url}"),
+                           "nuclei -silent -nc -timeout 10 -u {url}", timeout=1200),
         ExternalToolEngine("sqlmap", ("sqli", "sqlmap"), "sqlmap",
-                           "sqlmap -u {url} --batch --level=1 --risk=1"),
+                           "sqlmap -u {url} --batch --crawl=2 --forms "
+                           "--level=1 --risk=1", timeout=900),
         ExternalToolEngine("sslyze", ("sslyze",), "sslyze", "sslyze {host}"),
         ExternalToolEngine("testssl", ("testssl",), "testssl", "testssl {host}"),
         ExternalToolEngine("nikto", ("nikto",), "nikto", "nikto -h {url}"),
@@ -244,6 +248,7 @@ class ContentDiscoveryEngine(Engine):
     name = "descoberta-conteudo"
     keys = ("conteudo", "content", "fuzz", "dirscan", "descoberta",
             "bruteforce", "forca-bruta", "brute-force", "diretorios")
+    timeout = 300
 
     def available(self) -> bool:
         return shutil.which("ffuf") is not None or shutil.which("gobuster") is not None
@@ -259,10 +264,12 @@ class ContentDiscoveryEngine(Engine):
         url = _url(target).rstrip("/")
         wl = str(WORDLIST)
         if shutil.which("ffuf"):
-            return (f'ffuf -w "{wl}" -u {url}/FUZZ '
-                    f'-mc 200,201,204,301,302,307,401,403 -t 20 -s')
+            # -ac (auto-calibração) remove o falso-positivo de SPA que responde
+            # 200 para qualquer caminho (catch-all).
+            return (f'ffuf -w "{wl}" -u {url}/FUZZ -ac '
+                    f'-mc 200,201,204,301,302,307,401,403 -t 40 -s')
         if shutil.which("gobuster"):
-            return f'gobuster dir -u {url} -w "{wl}" -q -t 20'
+            return f'gobuster dir -u {url} -w "{wl}" -q -t 40'
         return f'[indisponível] ffuf/gobuster não instalados ({url})'
 
     def interpret(self, target, raw, status):
@@ -333,8 +340,10 @@ def run_engine(session, scope: Scope, target: Target, engine: Engine,
         rc = 0 if status == CollectionStatus.OK else None
     else:
         try:
+            eng_timeout = getattr(engine, "timeout", timeout) or timeout
             proc = subprocess.run(command, shell=True, capture_output=True,
-                                  text=True, timeout=timeout)
+                                  text=True, encoding="utf-8", errors="replace",
+                                  timeout=eng_timeout)
             raw = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
             rc = proc.returncode
             status = CollectionStatus.OK if rc == 0 else CollectionStatus.ERROR

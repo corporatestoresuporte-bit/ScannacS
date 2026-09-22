@@ -6,6 +6,7 @@ from contextlib import redirect_stdout
 
 import _pathshim  # noqa: F401
 
+from agente import scope as scope_mod
 from agente.cli import main
 
 
@@ -21,9 +22,14 @@ class TestCli(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("agente-vulnerabilidades", out)
 
-    def test_audit_run_sem_confirm_bloqueia(self):
-        # Sem --confirm e (provavelmente) sem escopo real => bloqueado.
-        code, out = self._run(["audit", "run"])
+    def test_audit_run_sem_escopo_bloqueia(self):
+        # NUNCA usar o escopo real (evita rodar scan de verdade no teste).
+        orig = scope_mod.load_scope
+        scope_mod.load_scope = lambda *a, **k: None  # sem escopo => bloqueado
+        try:
+            code, out = self._run(["audit", "run"])
+        finally:
+            scope_mod.load_scope = orig
         self.assertEqual(code, 2)
         self.assertIn("BLOQUEADA", out)
 
