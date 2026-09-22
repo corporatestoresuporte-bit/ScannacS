@@ -1,0 +1,24 @@
+# ============================================================================
+# MODELO DE SETTINGS — copie para config/settings.toml (git-ignorado).
+# Preferências operacionais. NENHUM segredo aqui: chaves/tokens vão no .env.
+# O provedor de IA e os scanners são definidos DEPOIS dos prompts master.
+# ============================================================================
+
+[ai]
+# Adiado: preencher após os prompts master.
+# provider = ""        # ex.: "anthropic" | "openai" | "local"
+# model = ""           # id do modelo
+# A chave correspondente vai no .env (ex.: ANTHROPIC_API_KEY), nunca aqui.
+
+[scanners]
+# Adiado: motores reais registrados quando definidos.
+# enabled = []         # ex.: ["headers", "tls"]
+
+[limits]
+# Padrões conservadores; o escopo por-alvo pode restringir mais.
+max_requests_per_second = 5
+request_timeout_seconds = 15
+
+[reports]
+format = "json"        # json | md
+output_dir = "reports"

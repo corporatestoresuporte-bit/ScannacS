@@ -1,0 +1,35 @@
+# --- Segredos e configuração local (NUNCA versionar) ------------------------
+.env
+.env.*
+!.env.example
+config/scope.toml
+config/settings.toml
+
+# --- Saídas de auditoria (podem conter dados sensíveis dos alvos) -----------
+reports/*
+logs/*
+!reports/.gitkeep
+!logs/.gitkeep
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Editores / SO ----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

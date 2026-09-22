@@ -1,0 +1,35 @@
+# ============================================================================
+# MODELO DE ESCOPO — copie para config/scope.toml (git-ignorado) e edite.
+#
+# A execução de auditoria fica BLOQUEADA enquanto:
+#   - authorized = false, ou
+#   - não houver ao menos um alvo válido com 'value'.
+#
+# Regras (ver AGENTS.md):
+#   - Só valem os ativos EXATOS listados abaixo.
+#   - Subdomínios, redirecionamentos, IPs compartilhados e serviços de
+#     terceiros NÃO ampliam o escopo automaticamente — liste cada um.
+#   - A máquina de desenvolvimento (localhost/loopback) nunca é alvo.
+# ============================================================================
+
+# Autorização explícita do dono dos ativos. Mude para true só quando você
+# realmente autorizar a execução contra os alvos abaixo.
+authorized = false
+authorized_by = ""      # seu nome/identificação
+authorized_at = ""      # data ISO, ex.: 2026-09-22
+
+# Ambiente do escopo: "producao" | "homologacao" | "laboratorio"
+environment = ""
+
+# --- Alvos --------------------------------------------------------------------
+# Duplique o bloco [[targets]] para cada ativo. Deixe a lista vazia até
+# você informar os alvos.
+
+# [[targets]]
+# name = "site institucional"
+# type = "domain"                     # domain | url | ip | vps
+# value = "exemplo.com"              # o ativo EXATO
+# allowed_tests = ["recon-passivo", "tls", "headers"]  # tipos permitidos
+# limits = "janela 22h-06h; rate <= 5 req/s"
+# exclusions = ["admin.exemplo.com", "/pagamentos/*"]
+# notes = "hospedado na VPS-X"

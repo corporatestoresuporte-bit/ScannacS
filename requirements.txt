@@ -1,0 +1,11 @@
+# A base NÃO tem dependências externas (usa só a stdlib do Python 3.11+).
+#
+# Ferramentas de desenvolvimento (opcionais):
+# pytest>=8
+# ruff>=0.5
+#
+# Scanners / provedor de IA: adicionados DEPOIS dos prompts master.
+# Exemplos possíveis (comentados até a decisão):
+# httpx>=0.27
+# cryptography>=42
+# anthropic>=0.34
