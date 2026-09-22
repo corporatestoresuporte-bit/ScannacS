@@ -132,6 +132,42 @@ def import_master(source_text: str, slug: str, *, title: str = "", order: int = 
     return path
 
 
+INBOX_DIR = config.PROMPTS_DIR / "inbox"
+
+
+def import_inbox() -> list[Path]:
+    """Importa todo arquivo .md/.txt de prompts/inbox/ como prompt master.
+
+    O ORIGINAL é preservado no master; o arquivo do inbox é removido após
+    importar. A ordem segue a maior ordem existente + 10.
+    """
+    if not INBOX_DIR.exists():
+        return []
+    existing = list_masters()
+    next_order = (max([m.order for m in existing], default=0) // 10 + 1) * 10
+    imported: list[Path] = []
+    for f in sorted(INBOX_DIR.iterdir()):
+        if not f.is_file() or f.suffix.lower() not in (".md", ".txt"):
+            continue
+        if f.name.upper().startswith("LEIA"):
+            continue
+        text = f.read_text(encoding="utf-8")
+        # respeita frontmatter existente (title/order/purpose/agents)
+        meta, body = parse_frontmatter(text)
+        order = int(meta.get("order", next_order)) if str(meta.get("order", "")).isdigit() else next_order
+        path = import_master(
+            body if meta else text, f.stem,
+            title=meta.get("title", f.stem), order=order,
+            purpose=meta.get("purpose", ""),
+            agents=", ".join(meta["agents"]) if isinstance(meta.get("agents"), list) else meta.get("agents", ""),
+            version=int(meta.get("version", 1)) if str(meta.get("version", "")).isdigit() else 1,
+        )
+        imported.append(path)
+        next_order += 10
+        f.unlink()  # remove do inbox após importar
+    return imported
+
+
 def manifest_hash(masters: list[Master] | None = None) -> str:
     """Hash do conjunto de prompts — muda se qualquer master mudar."""
     masters = masters if masters is not None else list_masters()

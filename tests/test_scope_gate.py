@@ -68,14 +68,15 @@ class TestScopeGate(unittest.TestCase):
         with self.assertRaises(audit_mod.AuditBlocked):
             audit_mod.run(scope=scope, confirmed=False)
 
-    def test_run_sem_motores_nao_executa(self):
+    def test_run_dry_run_nao_executa(self):
         scope = Scope(
             authorized=True,
             targets=[Target(name="site", type="domain", value="exemplo.com",
                             allowed_tests=["headers"])],
         )
-        result = audit_mod.run(scope=scope, confirmed=True)
-        self.assertFalse(result.executed)  # fundação: nenhum motor registrado
+        # dry_run + engines=[] garantem que NADA toca a rede no teste
+        result = audit_mod.run(scope=scope, confirmed=True, dry_run=True)
+        self.assertFalse(result.executed)
 
 
 if __name__ == "__main__":

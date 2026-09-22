@@ -1,36 +1,28 @@
-"""Runner de auditoria.
+"""Runner de auditoria — agora com os motores de scan ligados.
 
-Nesta fase da fundação NÃO há scanners reais nem provedor de IA — essa
-escolha é adiada até os prompts master e o escopo chegarem. O runner já
-implementa o esqueleto seguro:
+Fluxo do `run()` (só com escopo autorizado + confirmação):
+  1. portão de autorização (scope.evaluate_gate);
+  2. sessão ativa (cria se não houver);
+  3. para cada alvo × cada teste permitido, seleciona o(s) motor(es) e executa
+     via `engines.run_engine` (escopo + rate-limit + evidência preservada);
+  4. registra tarefas (estado) e suspeitas; NUNCA confirma sozinho.
 
-  1. preflight(): aplica o portão de autorização (scope.evaluate_gate).
-  2. plan():      lista o que SERIA executado por alvo (sem tocar na rede).
-  3. run():       recusa sem autorização + confirmação; com tudo válido,
-                  ainda não executa scanners (nenhum motor registrado),
-                  devolvendo um resultado explícito de "não verificado".
-
-Os motores (engines) reais serão registrados em ENGINES quando definidos.
+`plan()` e `dry_run=True` descrevem sem tocar na rede.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import engines as engines_mod
 from . import scope as scope_mod
-from .findings import Finding, Severity, Status
 from .logging_utils import get_logger
+from .store import Session
 
 logger = get_logger("agente.audit")
 
-# Registro de motores de scan. Vazio de propósito nesta fase.
-# Futuro: {"headers": HeadersEngine, "tls": TlsEngine, ...}
-ENGINES: dict[str, object] = {}
-
 
 class AuditBlocked(Exception):
-    """Levantada quando a auditoria é solicitada sem autorização/escopo."""
-
     def __init__(self, reasons: list[str]):
         self.reasons = reasons
         super().__init__("; ".join(reasons))
@@ -39,74 +31,88 @@ class AuditBlocked(Exception):
 @dataclass
 class AuditResult:
     executed: bool
-    findings: list[Finding] = field(default_factory=list)
+    findings: list = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    session: str = ""
 
 
 def preflight(scope: scope_mod.Scope | None = None) -> scope_mod.GateResult:
-    """Carrega o escopo (se não vier pronto) e aplica o portão."""
     if scope is None:
         scope = scope_mod.load_scope()
     return scope_mod.evaluate_gate(scope)
 
 
+def available_engines() -> list:
+    return engines_mod.all_engines()
+
+
 def plan(scope: scope_mod.Scope | None = None) -> list[str]:
-    """Descreve o que SERIA executado por alvo. Não faz nenhuma requisição."""
     gate = preflight(scope)
-    lines: list[str] = []
     if gate.scope is None:
         return ["Sem escopo — nada a planejar."]
+    tools = engines_mod.detect_tools()
+    lines = [f"Ferramentas externas: " +
+             ", ".join(f"{t}{'(ok)' if ok else '(-)'}" for t, ok in tools.items())]
     for t in gate.scope.targets:
-        tests = ", ".join(t.allowed_tests) or "(nenhum teste permitido)"
-        excl = ", ".join(t.exclusions) or "nenhuma"
-        lines.append(
-            f"[{t.type}] {t.name or t.value} -> {t.value} | testes: {tests} "
-            f"| exclusões: {excl}"
-        )
-    if not ENGINES:
-        lines.append(
-            "AVISO: nenhum motor de scan registrado ainda (fase de fundação)."
-        )
+        for key in t.allowed_tests:
+            engs = engines_mod.engines_for(key)
+            if not engs:
+                lines.append(f"[{t.value}] teste '{key}': (sem motor)")
+            for e in engs:
+                avail = "" if e.available() else " (ferramenta ausente → limitação)"
+                lines.append(f"[{t.value}] {key} -> motor {e.name}{avail}")
     return lines
 
 
-def run(scope: scope_mod.Scope | None = None, confirmed: bool = False) -> AuditResult:
+def run(scope: scope_mod.Scope | None = None, confirmed: bool = False,
+        dry_run: bool = False, session: Session | None = None,
+        engines: list | None = None) -> AuditResult:
     """Executa a auditoria — ou recusa, falhando fechado.
 
-    Requer, cumulativamente:
-      - portão de autorização aprovado (escopo + authorized + alvos válidos);
-      - `confirmed=True` (a CLI só passa isso com --confirm / confirmação).
+    `engines`: se passado (ex.: [] nos testes), sobrepõe o registro para não
+    tocar na rede. Caso contrário usa `engines_for(key)` por teste.
     """
+    if scope is None:
+        scope = scope_mod.load_scope()
     gate = preflight(scope)
     if not gate.allowed:
         logger.warning("Auditoria bloqueada: %s", "; ".join(gate.reasons))
         raise AuditBlocked(gate.reasons)
-
     if not confirmed:
-        raise AuditBlocked(
-            ["execução não confirmada — rode com --confirm para autorizar o início"]
-        )
+        raise AuditBlocked(["execução não confirmada — autorize (DISPARAR "
+                            "AUDITORIA) ou use --confirm"])
 
-    if not ENGINES:
-        logger.info("Escopo válido, mas nenhum motor de scan registrado.")
-        notes = [
-            "Escopo autorizado e válido.",
-            "Nenhum motor de scan registrado nesta fase — nada foi executado.",
-            "Integre os motores em audit.ENGINES após definir os prompts master.",
-        ]
-        findings = [
-            Finding(
-                target=t.value,
-                title="Auditoria não executada (sem motores)",
-                status=Status.NOT_CHECKED,
-                severity=Severity.INFO,
-                impact="Nenhum — nenhuma verificação foi realizada "
-                       "(fase de fundação: ENGINES vazio).",
-                remediation="Registrar motores reais e reexecutar.",
-            )
-            for t in (gate.scope.targets if gate.scope else [])
-        ]
-        return AuditResult(executed=False, findings=findings, notes=notes)
+    if dry_run:
+        return AuditResult(executed=False, notes=plan(scope))
 
-    # Caminho futuro: iterar ENGINES por alvo respeitando allowed_tests.
-    raise NotImplementedError("Execução de motores ainda não implementada.")
+    sess = session or Session.active() or Session.create(
+        environment=scope.environment, scope_hash=scope_mod.scope_hash(scope))
+    sess.update_meta(status="auditando")
+
+    override = engines is not None
+    executed = False
+    for t in scope.targets:
+        for key in t.allowed_tests:
+            engs = engines if override else engines_mod.engines_for(key)
+            if not engs:
+                sess.add_task({"agent": "coordenador", "objective": f"teste {key}",
+                               "target": t.value, "tool": "-", "status": "blocked",
+                               "result_format": "evidencia",
+                               "note": "sem motor para este teste"})
+                continue
+            for e in engs:
+                task = sess.add_task({"agent": e.name, "objective": f"teste {key}",
+                                      "target": t.value, "tool": getattr(e, "requires", None) or e.name,
+                                      "allowed_tools": [getattr(e, "requires", None) or "builtin"],
+                                      "status": "in_progress", "result_format": "evidencia"})
+                res = engines_mod.run_engine(sess, scope, t, e)
+                executed = True
+                st = "done" if res.evidence.status.value == "ok" else "not_verified"
+                sess.update_task(task["id"], status=st,
+                                 note=res.evidence.result_summary[:120])
+
+    findings = sess.findings()
+    notes = [f"Auditoria executada na sessão {sess.id}.",
+             f"Evidências: {len(sess.evidence())} | suspeitas/achados: {len(findings)}.",
+             "Suspeitas exigem validação (validador-achados) para confirmar."]
+    return AuditResult(executed=executed, findings=findings, notes=notes, session=sess.id)

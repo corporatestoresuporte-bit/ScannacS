@@ -24,6 +24,13 @@ from .store import Session
 from .verdict import EvidenceTier
 
 
+try:  # saída UTF-8 mesmo em console Windows cp1252 (evita crash em glyphs)
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:  # noqa: BLE001
+    pass
+
+
 def _p(*a: object) -> None:
     print(*a)
 
@@ -62,6 +69,12 @@ def cmd_doctor(_a) -> int:
     settings = config.ROOT / ".claude" / "settings.json"
     _p(f"CLAUDE.md           : {'presente' if claude_md.exists() else 'ausente'}")
     _p(f".claude/settings.json: {'presente' if settings.exists() else 'ausente'}")
+    from . import engines as eng
+    tools = eng.detect_tools()
+    on = [t for t, ok in tools.items() if ok]
+    _p(f"motores embutidos   : cabecalhos, tls, http-fingerprint (sempre)")
+    _p(f"ferramentas externas: {len(on)}/{len(tools)} instaladas "
+       f"({', '.join(on) or 'nenhuma'})")
     gate = audit_mod.preflight()
     _p(f"auditoria           : {'LIBERADA' if gate.allowed else 'BLOQUEADA'}")
     return 0
@@ -76,7 +89,7 @@ def cmd_ui(a) -> int:
         _p("Claude Code não encontrado no PATH.")
         _p("Próxima ação: instale/abra o Claude Code e rode `claude --version`.")
         return 1
-    prompt = a.print or "/auditoria"
+    prompt = a.print or "/scan"
     if a.no_launch:
         _p(f"[dry-run] abriria: claude -n \"AgenteAuditoria\" \"{prompt}\"  "
            f"(cwd={config.ROOT})")
@@ -178,6 +191,17 @@ def cmd_prompts_import(a) -> int:
 
 def cmd_prompts_context(a) -> int:
     _p(ctx.assemble_context(only_for_agent=a.agent))
+    return 0
+
+
+def cmd_prompts_import_inbox(_a) -> int:
+    imported = ctx.import_inbox()
+    if not imported:
+        _p(f"Nada em prompts/inbox/ para importar. "
+           f"Coloque um .md/.txt em {ctx.INBOX_DIR} e rode de novo.")
+        return 0
+    for p in imported:
+        _p(f"Importado: {p.name}")
     return 0
 
 
@@ -428,6 +452,18 @@ def cmd_fixtures_run(_a) -> int:
     return 0
 
 
+def cmd_tools(_a) -> int:
+    from . import engines as eng
+    tools = eng.detect_tools()
+    _p("Motores embutidos (sempre disponíveis):")
+    _p("  - cabecalhos-seguranca, tls, http-fingerprint")
+    _p("Ferramentas externas (rodam se instaladas):")
+    for t, ok in tools.items():
+        _p(f"  [{'x' if ok else ' '}] {t}")
+    _p("Ausente = verificação inconclusiva (limitação), não achado.")
+    return 0
+
+
 def cmd_hook(_a) -> int:
     from .hook import main as hook_main
     return hook_main()
@@ -476,6 +512,7 @@ def build_parser() -> argparse.ArgumentParser:
     imp.set_defaults(func=cmd_prompts_import)
     cx = pr_s.add_parser("context"); cx.add_argument("--agent", default=None)
     cx.set_defaults(func=cmd_prompts_context)
+    pr_s.add_parser("import-inbox", help="importa prompts/inbox/*.md|.txt").set_defaults(func=cmd_prompts_import_inbox)
 
     sc = sub.add_parser("scope"); sc_s = sc.add_subparsers(dest="c")
     sc_s.add_parser("init").set_defaults(func=cmd_scope_init)
@@ -521,6 +558,7 @@ def build_parser() -> argparse.ArgumentParser:
     fx = sub.add_parser("fixtures"); fx_s = fx.add_subparsers(dest="c")
     fx_s.add_parser("run").set_defaults(func=cmd_fixtures_run)
 
+    sub.add_parser("tools", help="lista motores/ferramentas detectadas").set_defaults(func=cmd_tools)
     sub.add_parser("hook").set_defaults(func=cmd_hook)
     sub.add_parser("integracoes").set_defaults(func=cmd_integracoes)
 

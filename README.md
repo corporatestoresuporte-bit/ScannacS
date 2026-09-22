@@ -22,11 +22,25 @@ Ou dê duplo-clique em **`Abrir-Agente.cmd`**. Ou, de dentro do ambiente:
 agente ui          # (ou: python -m agente ui)
 ```
 
-O iniciador verifica Python e Claude Code, prepara o ambiente (PYTHONPATH),
-mostra um resumo do projeto e abre a **interface nativa do Claude Code** já na
-conversa de configuração (`/auditoria`). Abordagem inspirada no iniciador do
-RAPTOR, reimplementada em PowerShell (Windows/PowerShell; espaços e acentos no
-caminho são suportados; `Ctrl+C` encerra sem deixar processo filho).
+O iniciador tem **UI dark**, verifica Python e Claude Code, prepara o ambiente,
+mostra um resumo e abre a **interface nativa do Claude Code**. Lá dentro, digite
+**`/scan`** para configurar e/ou disparar a auditoria. Abordagem inspirada no
+iniciador do RAPTOR, reimplementada em PowerShell (Windows/PowerShell; espaços e
+acentos no caminho são suportados; `Ctrl+C` encerra sem deixar processo filho).
+
+### Onde colocar o prompt mestre
+
+Solte o arquivo (`.md`/`.txt`) em **`prompts/inbox/`** e rode
+`agente prompts import-inbox` (ou, na interface, `/scan` oferece importar). Os
+originais vão para `prompts/masters/`, versionados. Um prompt avulso por texto:
+`agente prompts import - <slug> --title "..." --order 10`.
+
+### Ferramentas de scan (ligadas)
+
+Motores embutidos (sempre): cabeçalhos de segurança, TLS, fingerprint HTTP.
+Externas (rodam se instaladas): nmap, nuclei, sqlmap, sslyze, nikto, whatweb,
+dig, gobuster, ffuf, wpscan, testssl, wafw00f. Veja com `agente tools`. Sem a
+ferramenta → verificação inconclusiva (limitação), nunca achado inventado.
 
 > **1ª vez — confiança do workspace:** ao abrir `claude` aqui pela primeira vez,
 > aceite o diálogo de *trust*. Sem isso o Claude Code ignora as permissões e o
@@ -73,6 +87,8 @@ caminho são suportados; `Ctrl+C` encerra sem deixar processo filho).
 | `agente session new/show/list/resume` | Sessões (persistência/retomada). |
 | `agente prompts list/import/context` | Prompts master + contexto rastreável. |
 | `agente scope init/show/validate/set-env/add-target/authorize` | Escopo. |
+| `agente tools` | Lista motores embutidos + ferramentas externas detectadas. |
+| `agente prompts import-inbox` | Importa prompts de `prompts/inbox/`. |
 | `agente audit plan/run/status` | Plano, execução (gated), progresso. |
 | `agente exec --target T -- <cmd>` | Executor controlado + captura de evidência. |
 | `agente evidence list` / `finding list` | Evidências e achados da sessão. |
