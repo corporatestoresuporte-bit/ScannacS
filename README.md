@@ -8,7 +8,20 @@ autorizado, contra alvos que eu mesmo defino.
 > (`DISPARAR AUDITORIA`) + execução via executor controlado.** O portão nega por
 > padrão (fail-closed). A máquina de desenvolvimento nunca é alvo implícito.
 
-## Como abrir
+## Mais simples: `scan`
+
+```bash
+scan exemplo.com
+```
+
+Pergunta/usa o alvo, **exige prova de posse** (token em arquivo ou DNS TXT — uma
+vez por alvo), roda **todos os motores instalados** e imprime o relatório. Não
+precisa do Claude. Instalação e ferramentas: veja **[INSTALL.md](INSTALL.md)**
+(no Windows, `.\instalar.ps1` cria o atalho `scan` e checa tudo).
+
+Sem instalar: `PYTHONPATH=src python -m agente scan exemplo.com`.
+
+## Como abrir (modo conversa com Claude Code)
 
 No PowerShell, dentro da pasta do projeto:
 
