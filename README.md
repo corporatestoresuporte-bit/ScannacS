@@ -1,160 +1,104 @@
-# agente-vulnerabilidades
+# 🛡️ agente-vulnerabilidades
 
-Agente de **auditoria de segurança dos meus próprios ativos** — sites, domínios
-e VPS — com **interface interativa integrada ao Claude Code**. Uso estritamente
-autorizado, contra alvos que eu mesmo defino.
+**Auditoria de segurança dos seus próprios ativos** — externo, código e testes
+ativos — numa CLI simples que exige **prova de posse** do alvo antes de rodar.
 
-> ⚠️ **Nada é auditado sem escopo definido + autorização explícita
-> (`DISPARAR AUDITORIA`) + execução via executor controlado.** O portão nega por
-> padrão (fail-closed). A máquina de desenvolvimento nunca é alvo implícito.
+![license](https://img.shields.io/badge/license-MIT-green)
+![python](https://img.shields.io/badge/python-3.11%2B-blue)
+![tests](https://img.shields.io/badge/tests-77%20passing-brightgreen)
+![stdlib](https://img.shields.io/badge/deps-stdlib%20only-lightgrey)
 
-## Mais simples: `scan` (fluxo de 2 fases)
+> ⚠️ **Uso autorizado apenas.** Ferramenta para auditar ativos **seus** (ou com
+> autorização escrita). Antes de qualquer teste, o alvo precisa ser **verificado
+> como seu** (arquivo ou DNS TXT). Escanear terceiros sem autorização é crime.
+> Ver [SECURITY.md](SECURITY.md).
+
+---
+
+## ✨ O que faz — 3 camadas
+
+| Camada | Comando | Cobre |
+|---|---|---|
+| **Externo (DAST)** | `scan <alvo>` | cabeçalhos, TLS, fingerprint, descoberta de conteúdo (ffuf), nuclei, sqlmap, nmap… |
+| **Código (SAST-leve)** | `scan --code <pasta>` / `review-code` | segredo no bundle, `service_role`, RLS do Supabase, XSS, **rota sem auth, mass assignment, preço do cliente, IDOR** |
+| **Ativo (autorizado)** | `replay <req.json>` | **IDOR/BOLA, mass assignment, endpoint sem auth, rate-limit** a partir de 1 requisição capturada |
+
+Achados nascem como **suspeita** e só viram **confirmado** com evidência
+preservada (disciplina anti-falso-positivo herdada do RAPTOR).
+
+## 🚀 Início rápido
 
 ```bash
+# 1) instalar (cria o comando `scan`)
+pip install .
+# no Windows: .\instalar.ps1  (cria o atalho e checa ferramentas)
+
+# 2) rodar
 scan exemplo.com
-```
-
-- **Fase 1 (a ferramenta, sem Claude):** pergunta o alvo, **exige prova de posse**
-  (token em arquivo ou DNS TXT — uma vez por alvo), oferece analisar o
-  código-fonte, e roda **todas as análises pesadas** (externo + código),
-  gerando evidência e relatório. É o "músculo" — sem bloqueios.
-- **Fase 2 (abre o Claude Code sozinho no fim):** carrega prompt master + skills
-  (RAPTOR/ACSK), **valida** os achados (tira falso-positivo), consulta CVE e
-  **escreve o relatório final**. É o "cérebro". Não re-ataca o host.
-
-Pra ficar só na fase 1: `scan exemplo.com --no-claude`. Instalação e ferramentas: veja **[INSTALL.md](INSTALL.md)**
-(no Windows, `.\instalar.ps1` cria o atalho `scan` e checa tudo).
-
-Com análise do código-fonte (o risco real de SPA+Supabase — segredo no bundle,
-`service_role` no client, RLS, XSS):
-
-```bash
-scan exemplo.com --code C:\caminho\do\repo
-# só o código, sem rede:
-python -m agente review-code C:\caminho\do\repo
+# com análise do código-fonte junto:
+scan exemplo.com --code /caminho/do/repo
 ```
 
 Sem instalar: `PYTHONPATH=src python -m agente scan exemplo.com`.
+Ferramentas externas opcionais e por SO: ver [INSTALL.md](INSTALL.md).
 
-## Como abrir (modo conversa com Claude Code)
+## 🔁 Fluxo de 2 fases
 
-No PowerShell, dentro da pasta do projeto:
+1. **Fase 1 — a ferramenta (sem IA):** pergunta o alvo, confirma posse, roda
+   todas as análises pesadas e gera evidência + relatório. É o "músculo".
+2. **Fase 2 — abre o Claude Code (opcional):** carrega prompt master + skills
+   (RAPTOR / ACSK), **valida** os achados, consulta CVE e escreve o relatório
+   final. É o "cérebro". Não re-ataca o host.
 
-```powershell
-.\iniciar.ps1
-```
+Só a fase 1: `scan alvo --no-claude`.
 
-Ou dê duplo-clique em **`Abrir-Agente.cmd`**. Ou, de dentro do ambiente:
-
-```powershell
-agente ui          # (ou: python -m agente ui)
-```
-
-O iniciador tem **UI dark**, verifica Python e Claude Code, prepara o ambiente,
-mostra um resumo e abre a **interface nativa do Claude Code**. Lá dentro, digite
-**`/scan`** para configurar e/ou disparar a auditoria. Abordagem inspirada no
-iniciador do RAPTOR, reimplementada em PowerShell (Windows/PowerShell; espaços e
-acentos no caminho são suportados; `Ctrl+C` encerra sem deixar processo filho).
-
-### Onde colocar o prompt mestre
-
-Solte o arquivo (`.md`/`.txt`) em **`prompts/inbox/`** e rode
-`agente prompts import-inbox` (ou, na interface, `/scan` oferece importar). Os
-originais vão para `prompts/masters/`, versionados. Um prompt avulso por texto:
-`agente prompts import - <slug> --title "..." --order 10`.
-
-### Ferramentas de scan (ligadas)
-
-Motores embutidos (sempre): cabeçalhos de segurança, TLS, fingerprint HTTP.
-Externas (rodam se instaladas): nmap, nuclei, sqlmap, sslyze, nikto, whatweb,
-dig, gobuster, ffuf, wpscan, testssl, wafw00f. Veja com `agente tools`. Sem a
-ferramenta → verificação inconclusiva (limitação), nunca achado inventado.
-
-> **1ª vez — confiança do workspace:** ao abrir `claude` aqui pela primeira vez,
-> aceite o diálogo de *trust*. Sem isso o Claude Code ignora as permissões e o
-> **hook** do projeto (o executor controlado só é IMPOSTO na sessão após o
-> workspace ser confiável). A CLI `agente exec` aplica o escopo de qualquer forma.
-
-## O que este projeto faz
-
-- **Coordenador + agentes** (Claude Code): `investigador-web`, `investigador-api`,
-  `investigador-auth`, `investigador-infra` e `validador-achados` (adversarial).
-- **Executor controlado**: toda ação externa passa por `agente exec` e por um
-  hook `PreToolUse` que bloqueia rede fora do escopo ou antes da autorização.
-- **Evidência obrigatória**: hipótese começa como SUSPEITA; só confirma com
-  evidência de ferramenta + artefato preservado + validação (portão em código).
-- **Prompts master**: importados, versionados e montados em contexto rastreável.
-- **Sessões**: tarefas, achados, evidências e limites persistidos; retomáveis.
-- **Componentes de dois repositórios** incorporados (RAPTOR + coleção de skills
-  de segurança) — registro completo em [docs/integracoes.md](docs/integracoes.md).
-
-## Requisitos
-
-- Python **3.11+** (base sem dependências externas; usa `tomllib`).
-- **Claude Code** no PATH (testado com 2.1.280).
-- Windows/PowerShell (preparado para Linux depois).
-
-## Fluxo de uso
-
-1. Abrir (`.\iniciar.ps1`). O coordenador consulta o estado e pergunta só o que
-   falta, em português, uma pergunta por vez.
-2. **Prompts master** → salvos em `prompts/masters/` (originais preservados).
-3. **Alvos e escopo** → ativos EXATOS, ambiente, testes permitidos, limites,
-   exclusões (gravados em `config/scope.toml`).
-4. Resumo do escopo e do plano.
-5. Digitar **`DISPARAR AUDITORIA`** → autoriza (autorização única) e inicia.
-6. Conversar com o coordenador, ver progresso, interromper. Mudou alvo/permissão
-   → escopo é atualizado e revalidado antes de novos testes.
-
-## Comandos (CLI)
+## 🧰 Comandos
 
 | Comando | Função |
 |---|---|
-| `agente doctor` | Ambiente: Python, Claude Code, config, sessão, gate. |
-| `agente ui` | Abre a interface do Claude Code no projeto. |
-| `agente session new/show/list/resume` | Sessões (persistência/retomada). |
-| `agente prompts list/import/context` | Prompts master + contexto rastreável. |
-| `agente scope init/show/validate/set-env/add-target/authorize` | Escopo. |
-| `agente scan <alvo> [--code <pasta>]` | Auditoria ponta a ponta (posse → roda tudo → relatório). |
-| `agente review-code <pasta>` | Análise de código local: segredo/service_role/RLS/XSS + rota sem auth, mass assignment, preço do cliente, IDOR. |
-| `agente replay <req.json>` | Teste ATIVO autorizado de 1 requisição: IDOR/BOLA, mass assignment, endpoint sem auth, rate-limit. |
-| `agente report` | Relatório da sessão ativa. |
-| `agente tools` | Lista motores embutidos + ferramentas externas detectadas. |
-| `agente prompts import-inbox` | Importa prompts de `prompts/inbox/`. |
-| `agente audit plan/run/status` | Plano, execução (gated), progresso. |
-| `agente exec --target T -- <cmd>` | Executor controlado + captura de evidência. |
-| `agente evidence list` / `finding list` | Evidências e achados da sessão. |
-| `agente fixtures run` | Fixtures de teste (1 descartado + 1 validado). |
-| `agente integracoes` | Registro de componentes de terceiros. |
+| `scan <alvo> [--code <p>]` | Auditoria ponta a ponta (posse → roda tudo → relatório). |
+| `agente review-code <pasta>` | Análise de código local. |
+| `agente replay <req.json>` | Teste ativo autorizado (IDOR/mass/no-auth/rate). |
+| `agente scope verify --target <t>` | Prova de posse do alvo (token arquivo/DNS). |
+| `agente report` | Relatório da sessão. |
+| `agente tools` | Motores e ferramentas detectadas. |
+| `agente doctor` | Estado do ambiente. |
 
-## Estrutura
+## 🔒 Segurança & escopo
+
+- **Prova de posse obrigatória** por alvo (`scope verify`).
+- **Escopo estrito** — só hosts exatos; subdomínio/terceiro não ampliam.
+- **Executor controlado** — hook bloqueia rede fora do escopo.
+- **Sem ação destrutiva por padrão** no `replay`.
+- Segredos só em `.env`; `reports/`, `logs/`, `config/scope.toml` fora do Git.
+
+## 🧩 Componentes de terceiros
+
+- **RAPTOR** (MIT) — veredito tri-estado, graduação de evidência, doutrina de
+  validação/coordenação, iniciador. https://github.com/gadievron/raptor
+- **Anthropic-Cybersecurity-Skills** (Apache-2.0, projeto **comunitário** de
+  `mukul975`, não oficial da Anthropic) — skills de web/API/auth/infra/triagem.
+
+Registro completo: [docs/integracoes.md](docs/integracoes.md) · licenças em
+[THIRD_PARTY_LICENSES/](THIRD_PARTY_LICENSES/).
+
+## 🏗️ Estrutura
 
 ```
-agente-vulnerabilidades/
-├─ iniciar.ps1  Abrir-Agente.cmd     # abertura
-├─ CLAUDE.md  AGENTS.md              # instruções (coordenador / desenvolvimento)
-├─ .claude/
-│  ├─ settings.json                  # hook PreToolUse (executor controlado)
-│  ├─ commands/auditoria.md          # /auditoria (fluxo de abertura)
-│  ├─ agents/*.md                    # coordenador + investigadores + validador
-│  └─ skills/                        # skills incorporadas + triagem/coordenação
-├─ src/agente/                       # CLI + escopo + executor + evidência + ...
-├─ prompts/masters/                  # prompts master (originais)
-├─ config/                           # scope.example.toml / settings.example.toml
-├─ docs/integracoes.md               # registro de integrações (2 repos)
-├─ THIRD_PARTY_LICENSES/             # MIT (RAPTOR) + Apache-2.0 (skills)
-├─ tests/                            # 55 testes (unittest, stdlib)
-├─ reports/  logs/                   # saídas/sessões (git-ignorado)
+src/agente/     CLI + escopo + executor + motores + código + replay + evidência
+.claude/        CLAUDE.md, agents, skills, commands (fase 2 no Claude Code)
+prompts/        prompts master (originais) + inbox
+config/         modelos de escopo/settings
+tests/          77 testes (unittest, stdlib)
+docs/           integrações, referência OWASP, exemplos
 ```
 
-## Testes
+## 🧪 Testes
 
-```powershell
-$env:PYTHONPATH="src"; python -m unittest discover -s tests -v
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-## Segurança e escopo
+## 📄 Licença
 
-Detalhes em [AGENTS.md](AGENTS.md) (regras de operação) e
-[CLAUDE.md](CLAUDE.md) (coordenação). Créditos e licenças de terceiros em
-[docs/integracoes.md](docs/integracoes.md) e `THIRD_PARTY_LICENSES/`.
+MIT — ver [LICENSE](LICENSE). Componentes de terceiros sob suas próprias licenças.
