@@ -44,6 +44,51 @@ _XSS_SINKS = [
     ("innerHTML =", re.compile(r"\.innerHTML\s*=")),
     ("eval(", re.compile(r"\beval\s*\(")),
 ]
+
+# --- abuso de lógica/API (a classe do "hack por interceptação") -------------
+# (severidade, título, regex, impacto, correção)
+_APP_LOGIC = [
+    (Severity.HIGH, "mass assignment (corpo da requisição espalhado no banco)",
+     re.compile(r"\.(insert|update|upsert)\s*\([^)]*\.\.\.\s*(req\.body|request\.body|body|payload|input|data)\b", re.I),
+     "Espalhar o corpo da requisição direto no banco deixa o cliente gravar "
+     "campos proibidos (role, 2fa, saldo).",
+     "Aceitar só uma allowlist de campos; nunca ...body no insert/update."),
+    (Severity.HIGH, "papel/permissão vindo do corpo da requisição",
+     re.compile(r"(?i)\b(role|is_admin|isadmin|role_id|papel|perfil)\b\s*[:=]\s*"
+                r"(req\.body|request\.body|body|payload|input)\b|"
+                r"body\.(role|is_admin|isadmin|role_id)"),
+     "Cliente define o próprio papel = escalada para admin.",
+     "Definir papel/permissão no servidor, nunca a partir do input."),
+    (Severity.MEDIUM, "preço/total confiando no cliente",
+     re.compile(r"(?i)\b(price|total|amount|valor|preco|subtotal)\b\s*[:=]\s*"
+                r"(req\.body|request\.body|body|payload)\b|"
+                r"body\.(price|total|amount|valor|preco)"),
+     "Valor vindo do front pode ser adulterado (comprar por R$0).",
+     "Recalcular preço/total no servidor a partir do catálogo."),
+    (Severity.HIGH, "dado sensível retornado (senha/token/2fa)",
+     re.compile(r"(?i)(select|returning|return|res\.json|reply\.send|res\.send)"
+                r"[^\n]*(password|senha|password_hash|access_token|refresh_token|"
+                r"totp|two_factor|2fa|secret)"),
+     "Retornar hash de senha/token/2fa expõe credenciais ao cliente.",
+     "Nunca retornar esses campos; selecionar só o necessário."),
+    (Severity.LOW, "consulta sem filtro (select *) — risco de IDOR/vazamento",
+     re.compile(r"\.select\(\s*['\"]\*['\"]\s*\)|\bselect\s+\*\s+from\b", re.I),
+     "select * pode vazar colunas sensíveis e facilita IDOR.",
+     "Selecionar colunas específicas e filtrar por dono (auth.uid())."),
+]
+
+# detecção de rota e de checagem de auth (heurística)
+_ROUTE_DEF = re.compile(
+    r"\b(app|router|fastify|server)\.(get|post|put|patch|delete)\s*\(|"
+    r"export\s+(async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b|"
+    r"export\s+const\s+(GET|POST|PUT|PATCH|DELETE)\s*=", re.I)
+_AUTH_HINT = re.compile(
+    r"(?i)getuser|getsession|requireauth|require_auth|verify(?:token|jwt)|"
+    r"isauthenticated|ensureauth|@useguards|authguard|auth\.uid|"
+    r"authorization|bearer|supabase\.auth|req\.user|request\.user")
+_RATELIMIT = re.compile(
+    r"(?i)rate.?limit|ratelimit|express-rate-limit|@upstash/ratelimit|"
+    r"\bthrottle\b|slow.?down|p-?limit")
 # frontend = onde chave secreta NÃO pode aparecer
 _FRONTEND_HINTS = ("/src/", "\\src\\", "/dist/", "\\dist\\", "/public/", "\\public\\")
 
@@ -105,10 +150,21 @@ def review(root: Path, target: str = "") -> list[Finding]:
     findings: list[Finding] = []
     findings += env_committed(root, target)
 
+    project_has_routes = False
+    project_has_ratelimit = False
+
     for p in _iter_files(root):
         rel = str(p)
         frontend = _is_frontend(rel)
         lines = _read(p)
+        text = "\n".join(lines)
+        file_has_route = bool(_ROUTE_DEF.search(text))
+        file_has_auth = bool(_AUTH_HINT.search(text))
+        if file_has_route:
+            project_has_routes = True
+        if _RATELIMIT.search(text):
+            project_has_ratelimit = True
+
         for i, line in enumerate(lines, 1):
             # service_role no frontend = crítico
             if frontend and _SERVICE_ROLE.search(line):
@@ -139,6 +195,32 @@ def review(root: Path, target: str = "") -> list[Finding]:
                             "Inserir conteúdo não-sanitizado permite XSS.",
                             "Sanitizar/escapar; evitar innerHTML/eval."))
                         break
+            # abuso de lógica/API (a classe do "hack por interceptação")
+            for sev, nome, pat, impacto, fix in _APP_LOGIC:
+                if pat.search(line):
+                    findings.append(_f(target, nome, sev, rel, i, impacto, fix))
+                    break
+
+        # rota definida sem NENHUMA checagem de auth no arquivo
+        if file_has_route and not file_has_auth:
+            m = _ROUTE_DEF.search(text)
+            ln = text[:m.start()].count("\n") + 1 if m else 1
+            findings.append(_f(
+                target, "Endpoint sem autenticação aparente",
+                Severity.MEDIUM, rel, ln,
+                "Rota sem checagem de login/permissão pode expor dados ou ações "
+                "a qualquer um (endpoint aberto).",
+                "Exigir sessão/token e checar permissão antes de responder."))
+
+    # rate-limit no projeto inteiro
+    if project_has_routes and not project_has_ratelimit:
+        findings.append(_f(
+            target, "Sem rate-limit aparente no projeto",
+            Severity.LOW, str(root), 0,
+            "Sem limite de requisições, o alvo fica exposto a brute-force de "
+            "login e abuso de API (foi assim que invadiram o caso do vídeo).",
+            "Adicionar rate-limit (ex.: por IP/rota) nas rotas sensíveis, "
+            "especialmente login."))
 
     findings += _review_supabase_rls(root, target)
     return findings
