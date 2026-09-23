@@ -194,7 +194,8 @@ def _run_project(project: dict):
     rps, maxrun = (50.0, 100000) if aggressive else (5.0, 500)
 
     config.augment_path()   # garante que o executor ache tools instaladas na interface
-    sess = Session.active() or Session.create(environment="webui")
+    # cada "Iniciar" é uma sessão NOVA (não acumula achados de scans anteriores)
+    sess = Session.create(environment="webui")
     sess.update_meta(status="auditando")
     _set(session_id=sess.id, phase="running", started_at=_now(), findings=0)
 

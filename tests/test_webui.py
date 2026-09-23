@@ -73,6 +73,25 @@ class TestWebUI(unittest.TestCase):
         tools = [st["tool"] for st in s["steps"]]
         self.assertTrue(any("codereview" in t for t in tools))
 
+    def test_cada_run_cria_sessao_nova(self):
+        proj = {"targets": [{"kind": "code", "value": str(self.lab)}],
+                "mode": "ferramentas", "options": {}}
+
+        def _run_once():
+            webui.STATE.clear(); webui.STATE.update(webui._blank_state())
+            webui.start_project(proj)
+            for _ in range(80):
+                if webui._snapshot()["phase"] in ("scanned", "done", "cancelled"):
+                    break
+                time.sleep(0.1)
+            return webui._snapshot()
+
+        s1 = _run_once()
+        s2 = _run_once()
+        self.assertNotEqual(s1["session_id"], s2["session_id"])
+        # 2ª run não acumula os achados da 1ª (mesmo lab => mesmo total, não dobro)
+        self.assertEqual(s1["findings"], s2["findings"])
+
     def test_http_serve_e_api(self):
         httpd = webui.serve(port=0, open_browser=False, block=False)
         try:

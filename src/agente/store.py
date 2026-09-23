@@ -94,6 +94,11 @@ class Session:
     def create(cls, environment: str = "", scope_hash: str = "",
                prompts_hash: str = "") -> "Session":
         sid = new_session_id()
+        if (SESSIONS_DIR / sid).exists():   # colisão no mesmo segundo -> sufixo único
+            base, n = sid, 2
+            while (SESSIONS_DIR / f"{base}-{n}").exists():
+                n += 1
+            sid = f"{base}-{n}"
         s = cls(sid)
         s.dir.mkdir(parents=True, exist_ok=True)
         s.artifacts.mkdir(parents=True, exist_ok=True)

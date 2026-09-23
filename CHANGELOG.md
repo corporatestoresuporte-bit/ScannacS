@@ -4,6 +4,11 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Corrigido (2026-09-23)
+- Cada "Iniciar" no app cria uma **sessão NOVA** (não acumula achados de scans
+  anteriores na mesma sessão — antes o relatório inflava com duplicatas).
+- `Session.create` garante id ÚNICO mesmo com 2 scans no mesmo segundo (sufixo).
+
 ## [0.2.0-beta.3] - 2026-09-23
 
 Pré-release beta. Fecha os gaps de cobertura: segredo no bundle (SPA/Supabase),
