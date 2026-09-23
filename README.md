@@ -33,13 +33,19 @@ preservada (disciplina anti-falso-positivo herdada do RAPTOR).
 pip install .
 # no Windows: .\instalar.ps1  (cria o atalho e checa ferramentas)
 
-# 2) rodar
-scan exemplo.com
-# com análise do código-fonte junto:
-scan exemplo.com --code /caminho/do/repo
+# 2) abrir o terminal e digitar:
+scan
 ```
 
-Sem instalar: `PYTHONPATH=src python -m agente scan exemplo.com`.
+**É só isso.** `scan` abre um **app local no navegador** (tema escuro) que conduz
+tudo: escolher o alvo (código, site/API ou servidor — pode combinar), escolher o
+modo (**Completa** = ferramentas → revisão com Claude, **Só ferramentas** ou
+**Só Claude**), provar posse pela própria interface, e clicar **Iniciar**. O
+progresso real dos scanners aparece na tela; no modo Completa a análise passa
+**automaticamente** para o Claude na mesma sessão e gera o relatório final.
+
+Sem navegador (automação/terminal): `scan exemplo.com --cli` roda o fluxo antigo.
+Sem instalar: `PYTHONPATH=src python -m agente web`.
 Ferramentas externas opcionais e por SO: ver [INSTALL.md](INSTALL.md).
 
 ## 🔁 Fluxo de 2 fases

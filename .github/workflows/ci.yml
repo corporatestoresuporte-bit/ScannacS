@@ -68,6 +68,24 @@ jobs:
           test -f "$WS/.claude/agents/validador-achados.md" || { echo "FALHOU: sem agente"; exit 1; }
           test -d "$WS/.claude/skills" || { echo "FALHOU: sem skills"; exit 1; }
           echo "OK: workspace do Claude materializado a partir do wheel."
+      - name: app web sobe a partir do wheel (headless)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          from agente import webui
+          httpd = webui.serve(port=0, open_browser=False, block=False)
+          base = f"http://127.0.0.1:{httpd.server_address[1]}"
+          try:
+              assert urllib.request.urlopen(base + "/", timeout=5).status == 200
+              st = json.loads(urllib.request.urlopen(base + "/api/state", timeout=5).read())
+              assert "phase" in st, st
+              dp = json.loads(urllib.request.urlopen(base + "/api/deps", timeout=5).read())
+              assert "tools" in dp, dp
+              print("OK: app web servindo index + /api/state + /api/deps a partir do wheel")
+          finally:
+              httpd.shutdown(); httpd.server_close()
+          PY
 
   semgrep-lab:
     needs: unittest

@@ -17,6 +17,7 @@ Regras impostas aqui (spec §7/§8):
 
 from __future__ import annotations
 
+import os
 import shutil
 import socket
 import ssl
@@ -297,10 +298,67 @@ def engines_for(test_key: str) -> list[Engine]:
 
 
 # --------------------------------------------------------- execução controlada
+def _run_cancellable(command, eng_timeout, on_proc, should_cancel):
+    """Executa comando externo com terminação real em caso de cancelamento.
+
+    on_proc(proc) registra o processo p/ o chamador; should_cancel() é checado
+    em loop e, se True, o processo (e a árvore) é encerrado. Devolve (raw,rc,status).
+    """
+    import time as _t
+    creationflags = 0
+    preexec = None
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        preexec = os.setsid  # grupo próprio p/ matar a árvore
+    try:
+        proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True,
+                                encoding="utf-8", errors="replace",
+                                creationflags=creationflags, preexec_fn=preexec)
+    except Exception as e:  # noqa: BLE001
+        return (f"(erro: {e})", None, CollectionStatus.ERROR)
+    if on_proc:
+        on_proc(proc)
+    deadline = _t.time() + (eng_timeout or 120)
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.4)
+            raw = (out or "") + (("\n[stderr]\n" + err) if err else "")
+            rc = proc.returncode
+            status = CollectionStatus.OK if rc == 0 else CollectionStatus.ERROR
+            return (raw, rc, status)
+        except subprocess.TimeoutExpired:
+            if should_cancel and should_cancel():
+                _terminate_tree(proc)
+                return ("(cancelado pelo usuário)", None, CollectionStatus.ERROR)
+            if _t.time() > deadline:
+                _terminate_tree(proc)
+                return ("(timeout)", None, CollectionStatus.TIMEOUT)
+
+
+def _terminate_tree(proc) -> None:
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True)
+        else:
+            import signal
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception:  # noqa: BLE001
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def run_engine(session, scope: Scope, target: Target, engine: Engine,
                rps: float = 5.0, max_per_run: int = 500,
-               timeout: int = 120) -> EngineResult:
-    """Roda um motor contra um alvo, com escopo + rate-limit + evidência."""
+               timeout: int = 120, on_proc=None, should_cancel=None) -> EngineResult:
+    """Roda um motor contra um alvo, com escopo + rate-limit + evidência.
+
+    `on_proc`/`should_cancel` (opcionais) habilitam cancelamento real do
+    processo externo em execução (usado pelo app web)."""
     host = _host(target)
     command = engine.command(target)
     tool_label = getattr(engine, "requires", None) or engine.name
@@ -341,18 +399,22 @@ def run_engine(session, scope: Scope, target: Target, engine: Engine,
         raw, status = engine.collect(target)
         rc = 0 if status == CollectionStatus.OK else None
     else:
-        try:
-            eng_timeout = getattr(engine, "timeout", timeout) or timeout
-            proc = subprocess.run(command, shell=True, capture_output=True,
-                                  text=True, encoding="utf-8", errors="replace",
-                                  timeout=eng_timeout)
-            raw = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
-            rc = proc.returncode
-            status = CollectionStatus.OK if rc == 0 else CollectionStatus.ERROR
-        except subprocess.TimeoutExpired:
-            raw, rc, status = "(timeout)", None, CollectionStatus.TIMEOUT
-        except Exception as e:  # noqa: BLE001
-            raw, rc, status = f"(erro: {e})", None, CollectionStatus.ERROR
+        eng_timeout = getattr(engine, "timeout", timeout) or timeout
+        if on_proc is not None or should_cancel is not None:
+            raw, rc, status = _run_cancellable(command, eng_timeout,
+                                               on_proc, should_cancel)
+        else:
+            try:
+                proc = subprocess.run(command, shell=True, capture_output=True,
+                                      text=True, encoding="utf-8", errors="replace",
+                                      timeout=eng_timeout)
+                raw = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
+                rc = proc.returncode
+                status = CollectionStatus.OK if rc == 0 else CollectionStatus.ERROR
+            except subprocess.TimeoutExpired:
+                raw, rc, status = "(timeout)", None, CollectionStatus.TIMEOUT
+            except Exception as e:  # noqa: BLE001
+                raw, rc, status = f"(erro: {e})", None, CollectionStatus.ERROR
 
     # 5) evidência + artefato
     ev = Evidence(target=target.value, tool=(engine.requires or engine.name),

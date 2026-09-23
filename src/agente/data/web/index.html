@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScannacS</title>
+<style>
+:root{
+  --bg:#0a0c0b; --panel:#111614; --panel2:#0d1210; --line:#1e2723;
+  --txt:#d7e0da; --dim:#7c8a83; --green:#39d353; --green2:#2ea043;
+  --red:#f85149; --amber:#d29922; --blue:#58a6ff;
+  --mono:ui-monospace,"Cascadia Code","Consolas",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);
+  font-size:15px;line-height:1.5}
+a{color:var(--green)}
+.wrap{max-width:900px;margin:0 auto;padding:0 16px 64px}
+header{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0d1210,#0a0c0b);
+  position:sticky;top:0;z-index:5}
+.hd{max-width:900px;margin:0 auto;padding:14px 16px;display:flex;align-items:center;gap:12px}
+.logo{font-family:var(--mono);font-weight:700;letter-spacing:1px;color:var(--green);font-size:18px}
+.logo b{color:var(--txt)}
+.tag{color:var(--dim);font-size:12px;border:1px solid var(--line);padding:2px 8px;border-radius:20px}
+h2{font-size:16px;margin:26px 0 10px;color:var(--txt)}
+.muted{color:var(--dim);font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin:12px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+  padding:9px 11px;border-radius:8px;font-size:14px;font-family:var(--sans);min-width:0}
+input[type=text]{flex:1}
+button{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+  padding:9px 14px;border-radius:8px;font-size:14px;cursor:pointer;transition:.15s}
+button:hover{border-color:var(--green2)}
+button.primary{background:var(--green2);border-color:var(--green2);color:#04140a;font-weight:600}
+button.primary:hover{background:var(--green)}
+button.ghost{background:transparent}
+button.danger{border-color:#5a2320;color:var(--red)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.trow{display:flex;gap:8px;align-items:center;margin:8px 0}
+.pill{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--dim)}
+.modes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.mode{border:1px solid var(--line);border-radius:10px;padding:14px;cursor:pointer;background:var(--panel2)}
+.mode.sel{border-color:var(--green);box-shadow:0 0 0 1px var(--green) inset}
+.mode h3{margin:0 0 6px;font-size:14px}
+.mode p{margin:0;color:var(--dim);font-size:12px}
+.opts label{display:flex;gap:8px;align-items:center;margin:6px 0;font-size:14px;cursor:pointer}
+.steps{font-family:var(--mono);font-size:13px}
+.step{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--panel2)}
+.dot{width:9px;height:9px;border-radius:50%;margin-top:6px;flex:0 0 auto;background:var(--dim)}
+.dot.running{background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 1s infinite}
+.dot.done{background:var(--green2)} .dot.error{background:var(--red)}
+.dot.unavailable,.dot.skip{background:var(--amber)} .dot.pending{background:#33403a}
+@keyframes pulse{50%{opacity:.4}}
+.step .t{flex:1}
+.step .s{color:var(--dim);font-size:12px}
+.bar{height:6px;background:var(--panel2);border-radius:6px;overflow:hidden;margin:10px 0}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green2),var(--green));width:0;transition:width .4s}
+.stat{display:flex;gap:18px;flex-wrap:wrap;margin:8px 0;color:var(--dim);font-size:13px}
+.stat b{color:var(--txt)}
+pre{background:#06090a;border:1px solid var(--line);border-radius:8px;padding:14px;
+  overflow:auto;font-family:var(--mono);font-size:12.5px;color:#c9d4cd;white-space:pre-wrap}
+.hidden{display:none}
+.toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.tool{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--panel2)}
+.tool .ok{color:var(--green)} .tool .no{color:var(--amber)}
+.claude{border-left:3px solid var(--blue);padding-left:12px}
+.err{color:var(--red)}
+.small{font-size:12px}
+footer{margin-top:30px;color:var(--dim);font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<header><div class="hd">
+  <span class="logo">Scannac<b>S</b></span>
+  <span class="tag">auditoria dos seus próprios ativos</span>
+  <span style="flex:1"></span>
+  <span id="phasetag" class="tag">configurar</span>
+</div></header>
+
+<div class="wrap">
+
+<!-- ============ WIZARD ============ -->
+<section id="wizard">
+  <h2>1 · O que vamos analisar?</h2>
+  <div class="muted">Você pode combinar código + site + servidor no mesmo projeto. O escopo fica explícito.</div>
+  <div class="card">
+    <div id="targets"></div>
+    <div class="row" style="margin-top:10px">
+      <select id="kind">
+        <option value="code">Código (pasta/repositório)</option>
+        <option value="url">Site / API (URL)</option>
+        <option value="domain">Domínio</option>
+        <option value="ip">Servidor (IP)</option>
+      </select>
+      <input type="text" id="tval" placeholder="ex.: C:\caminho\do\codigo  ou  https://meusite.com  ou  1.2.3.4">
+      <button onclick="addTarget()">+ adicionar</button>
+    </div>
+  </div>
+
+  <h2>2 · Como deseja analisar?</h2>
+  <div class="modes">
+    <div class="mode sel" data-mode="completa" onclick="pickMode(this)">
+      <h3>Completa</h3><p>Ferramentas primeiro, revisão com o Claude depois. Recomendado.</p></div>
+    <div class="mode" data-mode="ferramentas" onclick="pickMode(this)">
+      <h3>Só ferramentas</h3><p>Roda os testes aplicáveis e entrega o relatório técnico.</p></div>
+    <div class="mode" data-mode="claude" onclick="pickMode(this)">
+      <h3>Só Claude</h3><p>Analisa código e evidências, sem iniciar os scanners.</p></div>
+  </div>
+
+  <div class="card opts">
+    <div class="muted" style="margin-bottom:6px">Opções dos testes</div>
+    <label><input type="checkbox" id="opt_discovery"> Descoberta de conteúdo (força bruta de caminhos/arquivos — <b>não</b> é tentativa de login)</label>
+    <label><input type="checkbox" id="opt_aggr"> Intensidade agressiva (rate maior, dentro do escopo)</label>
+    <label title="requer contas de teste e limites"><input type="checkbox" id="opt_authbf" disabled> Força bruta de autenticação (contas de teste + limites — configuração dedicada, em breve)</label>
+  </div>
+
+  <div id="deps" class="card"><div class="muted">verificando ferramentas…</div></div>
+
+  <h2>3 · Resumo</h2>
+  <div class="card" id="summary"><div class="muted">adicione ao menos um alvo.</div></div>
+  <div class="row">
+    <button class="primary" id="startbtn" onclick="start()" disabled>▶ Iniciar análise</button>
+    <span id="ownmsg" class="small"></span>
+  </div>
+</section>
+
+<!-- ============ RUNNING / RESULT ============ -->
+<section id="run" class="hidden">
+  <h2>Análise em andamento</h2>
+  <div class="stat">
+    <span>sessão <b id="sid">—</b></span>
+    <span>tempo <b id="elapsed">0s</b></span>
+    <span>achados <b id="fcount">0</b></span>
+    <span>fase <b id="phase2">—</b></span>
+  </div>
+  <div class="bar"><i id="progbar"></i></div>
+  <div class="card steps" id="steps"></div>
+  <div class="row">
+    <button class="danger" id="cancelbtn" onclick="cancelRun()">■ Cancelar</button>
+    <button class="ghost" onclick="location.reload()">novo projeto</button>
+  </div>
+
+  <div id="claudebox" class="card claude hidden">
+    <h3 style="margin:0 0 6px">Passagem para o Claude</h3>
+    <div class="small muted" id="claudestatus">—</div>
+    <pre id="claudelog" class="hidden"></pre>
+  </div>
+
+  <h2>Relatório</h2>
+  <pre id="report">—</pre>
+</section>
+
+<footer>ScannacS · roda só em 127.0.0.1 · seus dados não saem da máquina</footer>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+let targets=[], mode="completa", polling=null;
+
+function addTarget(){
+  const kind=$("#kind").value, val=$("#tval").value.trim();
+  if(!val) return;
+  targets.push({kind,value:val,verified:kind==="code"});
+  $("#tval").value=""; renderTargets(); syncProject();
+}
+function delTarget(i){ targets.splice(i,1); renderTargets(); syncProject(); }
+function renderTargets(){
+  const box=$("#targets");
+  if(!targets.length){ box.innerHTML='<div class="muted">nenhum alvo ainda.</div>'; return;}
+  box.innerHTML=targets.map((t,i)=>{
+    const needV = t.kind!=="code" && !t.verified;
+    const v = t.kind==="code" ? '<span class="pill">local</span>'
+       : (t.verified?'<span class="pill" style="color:var(--green);border-color:var(--green2)">posse ok</span>'
+         :'<button class="small" onclick="verify('+i+')">provar posse</button>');
+    return `<div class="trow"><span class="pill">${t.kind}</span>
+      <span class="t" style="flex:1;font-family:var(--mono);font-size:13px">${esc(t.value)}</span>
+      ${v}<button class="ghost small" onclick="delTarget(${i})">remover</button></div>`;
+  }).join("");
+}
+function pickMode(el){
+  document.querySelectorAll(".mode").forEach(m=>m.classList.remove("sel"));
+  el.classList.add("sel"); mode=el.dataset.mode; syncProject();
+}
+function esc(s){return (s+"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+
+function project(){
+  return {targets:targets.map(t=>({kind:t.kind,value:t.value})), mode,
+    options:{content_discovery:$("#opt_discovery").checked, aggressive:$("#opt_aggr").checked}};
+}
+async function verify(i){
+  const t=targets[i];
+  $("#ownmsg").textContent="verificando posse de "+t.value+"…";
+  const r=await api("/api/verify",{value:t.value});
+  if(r.ok){ t.verified=true; $("#ownmsg").textContent="posse comprovada ("+r.method+")."; }
+  else{ $("#ownmsg").innerHTML='<span class="err">posse não comprovada.</span> Publique o token '+
+    '<code>'+esc(r.token)+'</code> em <code>/rz-audit-verify.txt</code> ou no DNS TXT e tente de novo.'; }
+  renderTargets(); syncProject();
+}
+async function syncProject(){
+  const p=project(); let needs=[];
+  if(p.targets.length){ try{ const r=await api("/api/project",p); needs=r.needs_ownership||[]; }catch(e){} }
+  // resumo
+  const byk={}; targets.forEach(t=>byk[t.kind]=(byk[t.kind]||0)+1);
+  const desc=Object.entries(byk).map(([k,n])=>n+"× "+k).join(", ")||"nada";
+  const modtxt={completa:"Completa (ferramentas → Claude)",ferramentas:"Só ferramentas",claude:"Só Claude"}[mode];
+  $("#summary").innerHTML = !targets.length
+    ? '<div class="muted">adicione ao menos um alvo.</div>'
+    : `<div>Alvos: <b>${esc(desc)}</b></div><div>Modo: <b>${modtxt}</b></div>`+
+      (needs.length?`<div class="err small">falta provar posse de: ${needs.map(esc).join(", ")}</div>`:
+        `<div class="small" style="color:var(--green)">pronto para iniciar</div>`);
+  const ready = targets.length && needs.length===0;
+  $("#startbtn").disabled=!ready;
+}
+async function loadDeps(){
+  try{
+    const d=await api("/api/deps",null,"GET");
+    const t=d.tools||{};
+    const cells=Object.entries(t).map(([k,ok])=>
+      `<div class="tool">${esc(k)} <span class="${ok?'ok':'no'}">${ok?'✓ ok':'ausente'}</span></div>`).join("");
+    const miss=(d.missing||[]).length?`<div class="small muted" style="margin-top:8px">Ausentes (opcionais): ${(d.missing).map(esc).join(", ")}. Instale conforme docs para ampliar a cobertura — nada é escondido.</div>`:"";
+    $("#deps").innerHTML=`<div class="muted" style="margin-bottom:8px">Ferramentas detectadas</div><div class="toolgrid">${cells}</div>${miss}`;
+  }catch(e){ $("#deps").innerHTML='<div class="err small">falha ao checar ferramentas</div>'; }
+}
+async function start(){
+  const p=project();
+  const r=await api("/api/start",p);
+  if(!r.ok){ alert(r.error||"não foi possível iniciar"); return; }
+  $("#wizard").classList.add("hidden"); $("#run").classList.remove("hidden");
+  polling=setInterval(poll,1000); poll();
+}
+async function cancelRun(){ await api("/api/cancel",{}); $("#cancelbtn").disabled=true; }
+
+const stColor={pending:"pending",running:"running",done:"done",error:"error",
+  unavailable:"unavailable",skip:"skip",cancelled:"error"};
+async function poll(){
+  let s; try{ s=await api("/api/state",null,"GET"); }catch(e){ return; }
+  $("#phasetag").textContent=s.phase; $("#phase2").textContent=s.phase;
+  $("#sid").textContent=s.session_id||"—";
+  $("#elapsed").textContent=(s.elapsed||0)+"s";
+  $("#fcount").textContent=s.findings||0;
+  const steps=s.steps||[];
+  const done=steps.filter(x=>["done","error","unavailable","skip","cancelled"].includes(x.status)).length;
+  $("#progbar").style.width=(steps.length?Math.round(done/steps.length*100):0)+"%";
+  $("#steps").innerHTML=steps.map(x=>
+    `<div class="step"><span class="dot ${stColor[x.status]||'pending'}"></span>
+      <span class="t">${esc(x.tool)} <span class="muted small">· ${esc(x.target)}</span>
+      <div class="s">${esc(x.summary||x.status)}</div></span></div>`).join("")
+    ||'<div class="muted">preparando…</div>';
+  if(s.report) $("#report").textContent=s.report;
+  // claude
+  if(["handoff","done"].includes(s.phase) && s.project && s.project.mode!=="ferramentas"){
+    $("#claudebox").classList.remove("hidden");
+    const c=s.claude||{}; $("#claudestatus").textContent="status: "+(c.status||"—");
+    if(c.log){ $("#claudelog").classList.remove("hidden"); $("#claudelog").textContent=c.log; }
+  }
+  const ended=["done","cancelled","scanned"].includes(s.phase) &&
+    !(s.phase==="scanned" && s.project && s.project.mode!=="ferramentas");
+  if(ended){ clearInterval(polling); $("#cancelbtn").disabled=true; }
+}
+async function api(path,body,method){
+  const opt={method:method||(body?"POST":"GET"),headers:{"Content-Type":"application/json"}};
+  if(body) opt.body=JSON.stringify(body);
+  const r=await fetch(path,opt); return await r.json();
+}
+renderTargets(); loadDeps(); syncProject();
+$("#opt_discovery").onchange=$("#opt_aggr").onchange=syncProject;
+</script>
+</body>
+</html>

@@ -4,6 +4,24 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado (app web — `scan` abre a interface 2026-09-23)
+- **App web local (dark)**: `scan` (ou `agente web`/`agente ui`) sobe um servidor
+  em 127.0.0.1 e abre o navegador com um assistente que conduz todo o fluxo:
+  escolher alvos (código + site + servidor no mesmo projeto, escopo explícito),
+  modo (Completa / Só ferramentas / Só Claude), provar posse pela interface,
+  ver **progresso real** dos scanners, cancelar, e ver o relatório.
+- **Executor próprio do app** reusa os motores existentes (engines/codereview/
+  deps/sast/iac), respeitando escopo + posse + autorização; seleção automática
+  dos motores aplicáveis; ferramentas ausentes aparecem como tal (não escondidas).
+- **Cancelamento real** de processos externos (`engines.run_engine` ganhou
+  `on_proc`/`should_cancel`; termina a árvore de processo no Windows/Linux).
+- **Passagem automática pro Claude** (modo Completa): salva evidências + relatório
+  preliminar, materializa o workspace da MESMA sessão, roda o Claude com os prompts
+  master + RAPTOR/ACSK, persiste as decisões e gera o relatório final — sem copiar
+  prompt nem trocar de terminal.
+- Posse de **loopback** (127.0.0.1/localhost) é automática (é a sua máquina).
+- CI: teste `test_webui` (matriz Win+Linux) + smoke do app a partir do wheel.
+
 ### Adicionado (comprovação com Claude REAL 2026-09-23)
 - **Laboratório executável** (`test_lab_confirma`): app loopback + 2 contas de
   teste, versão vulnerável e corrigida. Comprova o motor: CONFIRMA IDOR com

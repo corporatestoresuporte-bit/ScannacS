@@ -87,7 +87,17 @@ def cmd_doctor(_a) -> int:
 # --------------------------------------------------------------------------- #
 # ui — abre a interface do Claude Code no projeto
 # --------------------------------------------------------------------------- #
+def cmd_web(a) -> int:
+    from . import webui
+    webui.serve(port=getattr(a, "port", 0),
+                open_browser=not getattr(a, "no_browser", False))
+    return 0
+
+
 def cmd_ui(a) -> int:
+    # padrão: abre o app web (dark). Só abre o Claude direto com --claude.
+    if not getattr(a, "claude", False):
+        return cmd_web(a)
     claude = shutil.which("claude")
     if not claude:
         _p("Claude Code não encontrado no PATH.")
@@ -949,9 +959,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("version").set_defaults(func=cmd_version)
     sub.add_parser("doctor").set_defaults(func=cmd_doctor)
 
-    ui = sub.add_parser("ui", help="abre a interface do Claude Code no projeto")
-    ui.add_argument("--print", default=None, help="prompt inicial (default /auditoria)")
+    web = sub.add_parser("web", help="abre o app web (dark) no navegador")
+    web.add_argument("--no-browser", action="store_true",
+                     help="sobe o servidor sem abrir o navegador")
+    web.add_argument("--port", type=int, default=0, help="porta (0 = automática)")
+    web.set_defaults(func=cmd_web)
+
+    ui = sub.add_parser("ui", help="abre o app web (dark) no navegador")
+    ui.add_argument("--print", default=None, help="(modo Claude) prompt inicial")
     ui.add_argument("--no-launch", action="store_true", help="apenas mostra o comando")
+    ui.add_argument("--claude", action="store_true",
+                    help="abre direto o Claude Code (fluxo antigo) em vez do app web")
     ui.set_defaults(func=cmd_ui)
 
     se = sub.add_parser("session"); se_s = se.add_subparsers(dest="c")
@@ -1113,8 +1131,20 @@ def scan_main(argv: list[str] | None = None) -> int:
                     help="pasta do código-fonte p/ análise local (segredo/RLS/XSS)")
     ap.add_argument("--no-claude", action="store_true",
                     help="não abrir o Claude Code na fase 2 (só a fase 1)")
+    ap.add_argument("--web", action="store_true",
+                    help="abre o app web (dark) no navegador — fluxo guiado")
+    ap.add_argument("--cli", action="store_true",
+                    help="força o fluxo antigo de terminal (sem app web)")
+    ap.add_argument("--no-browser", action="store_true",
+                    help="com --web: sobe o servidor sem abrir o navegador")
     a = ap.parse_args(argv)
     config.ensure_dirs()
+
+    # `scan` sozinho (sem alvo) => abre o APP WEB guiado (dark). É o fluxo padrão.
+    if not a.cli and (a.web or (not a.target and not a.code)):
+        from . import webui
+        webui.serve(open_browser=not a.no_browser)
+        return 0
 
     target = a.target
     if not target:
