@@ -39,5 +39,19 @@ como cobertura pronta.
   externo; quem executa é o usuário no terminal.
 - Cobertura por amostragem em grupos grandes de achados estáticos.
 
+## Estado de verificação (o que foi realmente testado, e onde)
+- **91 testes unittest (stdlib)** — passam localmente (Windows, Python 3.13).
+- **CI GitHub Actions VERDE** em Ubuntu, Python **3.11 / 3.12 / 3.13** (workflow
+  `testes`, verde no commit atual). **Windows NÃO está no CI** — só execução
+  local nesta máquina.
+- **Instalação a partir de artefato limpo** (git archive → venv novo → `pip
+  install`): verificada — `agente doctor` roda instalado, fora do checkout, sem
+  PYTHONPATH, com recursos resolvidos do pacote. (O `.claude/` da fase-2 vem do
+  clone do repo, não do wheel — a CLI instalada roda scan/deps/review-code/replay.)
+- **OSV**: verificado com dados reais (osv.dev) e com mock (base indisponível =
+  limitação).
+- **NÃO verificado / pendente:** empacotamento em release/ZIP publicado; CI em
+  Windows; E2E com ZAP/Semgrep/Trivy reais em laboratório; acesso a banco ao vivo.
+
 *Versão da matriz acompanha o CHANGELOG. Uma linha aqui não vira "pronto" sem
 motor + evidência + teste correspondentes.*
