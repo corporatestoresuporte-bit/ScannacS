@@ -51,6 +51,39 @@ class TestSession(unittest.TestCase):
         self.assertEqual(stored["status"], "suspeita")
         self.assertIn("rejeitada", stored.get("nota_validacao", ""))
 
+    def test_manifesto_na_criacao(self):
+        s = store.Session.create()
+        m = s.meta()
+        self.assertIn("version", m)
+        self.assertIn("install_mode", m)
+        self.assertEqual(m.get("hash_convention"), "sha256-bytes")
+
+    def test_set_status_descartado_persiste_decisao(self):
+        s = store.Session.create()
+        f = s.add_finding({"title": "x", "target": "a.com", "status": "suspeita"})
+        ok, _ = s.update_finding(f["id"], "descartado", "validador",
+                                 "falso-positivo", ["reflexo encoded"])
+        self.assertTrue(ok)
+        got = s.findings()[0]
+        self.assertEqual(got["status"], "descartado")
+        self.assertEqual(got["validation"]["validated_by"], "validador")
+
+    def test_set_status_confirmado_sem_evidencia_recusa(self):
+        s = store.Session.create()
+        f = s.add_finding({"title": "x", "target": "a.com", "status": "suspeita",
+                           "evidence_ids": []})
+        ok, msg = s.update_finding(f["id"], "confirmado", "validador", "achei")
+        self.assertFalse(ok)
+        self.assertEqual(s.findings()[0]["status"], "suspeita")
+
+    def test_close_gera_cobertura(self):
+        s = store.Session.create()
+        s.add_finding({"title": "x", "target": "a.com", "status": "suspeita"})
+        m = s.close()
+        self.assertEqual(m["status"], "concluida")
+        self.assertIn("cobertura", m)
+        self.assertEqual(m["cobertura"]["nao_revisados"], 1)
+
     def test_limits_roundtrip(self):
         s = store.Session.create()
         s.save_limits({"h": {"count": 3}})

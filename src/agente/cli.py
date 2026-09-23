@@ -480,8 +480,34 @@ def cmd_finding_list(_a) -> int:
         _p("Nenhuma sessão ativa.")
         return 1
     for f in s.findings():
-        _p(f"  {f.get('id')} | {f.get('status')} | {f.get('severity')} | "
+        rev = "revisado" if (f.get("validation") or {}).get("validated_by") else "nao-revisado"
+        _p(f"  {f.get('id')} | {f.get('status')} | {rev} | {f.get('severity')} | "
            f"{f.get('title')}")
+    return 0
+
+
+def cmd_finding_set(a) -> int:
+    """Persiste a decisão do validador num achado (rastreável)."""
+    s = Session.active()
+    if not s:
+        _p("Nenhuma sessão ativa.")
+        return 1
+    alts = [a.alt] if a.alt else []
+    ok, msg = s.update_finding(a.id, a.status, a.by, a.reason, alts, a.type)
+    _p(msg)
+    return 0 if ok else 2
+
+
+def cmd_session_close(_a) -> int:
+    s = Session.active()
+    if not s:
+        _p("Nenhuma sessão ativa.")
+        return 1
+    m = s.close()
+    cob = m.get("cobertura", {})
+    _p(f"Sessão {s.id} encerrada. Achados por estado: "
+       f"{cob.get('achados_por_estado', {})} | não-revisados: "
+       f"{cob.get('nao_revisados', 0)}")
     return 0
 
 
@@ -783,9 +809,13 @@ def print_report(sess: Session) -> None:
     descartados = [f for f in findings if f.get("status") == "descartado"]
     ok, incon, missing = _classify_evidence(sess.evidence())
 
+    nao_revisados = [f for f in findings
+                     if not (f.get("validation") or {}).get("validated_by")]
     _p("=" * 56)
     _p(f" RELATÓRIO — {tgt}")
     _p(f" sessão {sess.id} | posse {'verificada' if verified else 'NÃO verificada'}")
+    _p(f" versão {m.get('version','?')} commit {m.get('commit') or '-'} "
+       f"({m.get('install_mode','?')}) | status {m.get('status','?')}")
     _p("=" * 56)
     _p(f"\nCONFIRMADOS (com evidência): {len(confirmados)}")
     for f in confirmados:
@@ -805,9 +835,14 @@ def print_report(sess: Session) -> None:
             _p(f"  - {tool}: {st} — {why}")
     if missing:
         _p(f"\nNÃO RODARAM (ferramenta não instalada): {', '.join(sorted(set(missing)))}")
+    _p(f"\nNÃO REVISADOS (sem decisão registrada): {len(nao_revisados)}")
+    if nao_revisados:
+        _p("  -> não são 'seguros'; faltam validação/decisão rastreável "
+           "(use `agente finding set-status`).")
     _p(f"\nCOBERTURA: motores OK: {', '.join(sorted(set(ok))) or '-'}")
     _p("AVISO: relatório sem achado NÃO prova ausência de vulnerabilidade — "
-       "só cobre o que foi testado.")
+       "só cobre o que foi testado. Amostragem não vira conclusão ampla: itens "
+       "sem decisão ficam em NÃO REVISADOS.")
 
 
 def cmd_report(_a) -> int:
@@ -848,6 +883,7 @@ def build_parser() -> argparse.ArgumentParser:
     se_s.add_parser("list").set_defaults(func=cmd_session_list)
     se_s.add_parser("show").set_defaults(func=cmd_session_show)
     r = se_s.add_parser("resume"); r.add_argument("id"); r.set_defaults(func=cmd_session_resume)
+    se_s.add_parser("close", help="encerra a sessão com retrato de cobertura").set_defaults(func=cmd_session_close)
 
     pr = sub.add_parser("prompts"); pr_s = pr.add_subparsers(dest="c")
     pr_s.add_parser("list").set_defaults(func=cmd_prompts_list)
@@ -910,6 +946,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     fn = sub.add_parser("finding"); fn_s = fn.add_subparsers(dest="c")
     fn_s.add_parser("list").set_defaults(func=cmd_finding_list)
+    fs = fn_s.add_parser("set-status", help="persiste decisão do validador")
+    fs.add_argument("id")
+    fs.add_argument("--status", required=True,
+                    choices=["confirmado", "descartado", "inconclusivo",
+                             "suspeita", "nao_verificado"])
+    fs.add_argument("--by", required=True)
+    fs.add_argument("--reason", default="")
+    fs.add_argument("--alt", default="", help="explicação alternativa considerada")
+    fs.add_argument("--type", default=None,
+                    help="confirmation_type (falha_no_codigo|configuracao_vulneravel|comportamento_reproduzido)")
+    fs.set_defaults(func=cmd_finding_set)
 
     fx = sub.add_parser("fixtures"); fx_s = fx.add_subparsers(dest="c")
     fx_s.add_parser("run").set_defaults(func=cmd_fixtures_run)

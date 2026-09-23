@@ -54,9 +54,16 @@ como cobertura pronta.
   do wheel — a CLI instalada roda scan/deps/sast/review-code/replay.
 - **Workspace do Claude a partir do wheel:** `init-workspace` materializa
   CLAUDE.md/.claude/agentes/skills/hooks — verificado no CI (Win+Linux) e local.
+- **Estado validado:** decisões do validador são persistidas por achado
+  (`finding set-status`) e a sessão fecha com cobertura (`session close`); o
+  relatório separa REVISADOS de NÃO-REVISADOS (amostra ≠ conclusão ampla).
+- **Correção (revisão):** o fluxo Claude em CI **é** automatizável via `claude -p`
+  (modo programático) — o bloqueio real é **auth/orçamento/config no runner**,
+  não impossibilidade. Ainda NÃO montado em CI (bloqueio concreto: sem credencial
+  de IA no runner).
 - **NÃO verificado / pendente:** release/ZIP publicado; E2E do fluxo Claude com
-  Claude REAL (carregar contexto/rodar agentes de ponta a ponta); Trivy/ZAP;
-  acesso a banco ao vivo.
+  Claude REAL em CI (falta auth no runner); ZAP; acesso a banco ao vivo (RLS
+  efetiva com contas de teste).
 
 *Versão da matriz acompanha o CHANGELOG. Uma linha aqui não vira "pronto" sem
 motor + evidência + teste correspondentes.*

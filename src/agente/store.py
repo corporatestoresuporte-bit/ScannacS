@@ -61,6 +61,26 @@ def read_json(path: Path, default):
         return default
 
 
+def _tool_version() -> str:
+    try:
+        from . import __version__
+        return __version__
+    except Exception:  # noqa: BLE001
+        return "?"
+
+
+def _git_commit() -> str:
+    """Commit curto do checkout (best-effort; vazio se instalado/sem git)."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", str(config.ROOT), "rev-parse",
+                              "--short", "HEAD"], capture_output=True, text=True,
+                             timeout=8)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 class Session:
     """Handle de uma sessão de auditoria no disco."""
 
@@ -84,6 +104,12 @@ class Session:
             "environment": environment,
             "scope_hash": scope_hash,
             "prompts_hash": prompts_hash,
+            # manifesto: identifica a VERSÃO/execução (spec §10 / revisão #1)
+            "version": _tool_version(),
+            "commit": _git_commit(),
+            "install_mode": "checkout" if config._IS_CHECKOUT else "instalado",
+            "hash_convention": "sha256-bytes",   # artefatos: hash sobre bytes
+            "engines": [],                        # preenchido por quem executa
         })
         for name in ("tasks", "findings", "evidence", "suspicions"):
             write_json(s.dir / f"{name}.json", [])
@@ -169,6 +195,58 @@ class Session:
                     "confirmação rejeitada (evidência insuficiente): "
                     + "; ".join(missing))
         return self._append("findings", finding)
+
+    def update_finding(self, finding_id: str, status: str, validated_by: str,
+                       reason: str = "", alternatives: list[str] | None = None,
+                       confirmation_type: str | None = None) -> tuple[bool, str]:
+        """Persiste a DECISÃO do validador num achado (rastreável).
+
+        Grava status + registro de validação (quem/quando/motivo/alternativas).
+        Para 'confirmado', aplica o portão can_confirm; se falhar, mantém como
+        'suspeita' com a nota do motivo. Devolve (ok, mensagem)."""
+        items = self._load("findings")
+        hit = None
+        for f in items:
+            if f.get("id") == finding_id:
+                hit = f
+                break
+        if hit is None:
+            return (False, f"achado {finding_id} não encontrado")
+        val = hit.get("validation") or {}
+        val.update({"validated_by": validated_by, "validated_at": _now(),
+                    "method": reason, "alternative_explanations":
+                    alternatives if alternatives is not None else val.get(
+                        "alternative_explanations", [])})
+        hit["validation"] = val
+        if confirmation_type:
+            hit["confirmation_type"] = confirmation_type
+        if status == "confirmado":
+            from . import findings as _F
+            # o validador precisa afirmar is_true_positive=True p/ confirmar
+            val["is_true_positive"] = True
+            ok, missing = _F.validate_confirmation(hit, self.evidence())
+            if not ok:
+                hit["status"] = "suspeita"
+                hit["nota_validacao"] = "confirmação rejeitada: " + "; ".join(missing)
+                write_json(self.dir / "findings.json", items)
+                return (False, "não confirmado: " + "; ".join(missing))
+        hit["status"] = status
+        hit["nota_validacao"] = f"validado por {validated_by}: {reason}"[:300]
+        write_json(self.dir / "findings.json", items)
+        return (True, f"{finding_id} -> {status}")
+
+    def close(self, status: str = "concluida") -> dict:
+        """Encerra a sessão de forma coerente, com um retrato de cobertura."""
+        fnd = self.findings()
+        by = {}
+        for f in fnd:
+            by[f.get("status", "?")] = by.get(f.get("status", "?"), 0) + 1
+        nao_revisados = sum(1 for f in fnd
+                            if not (f.get("validation") or {}).get("validated_by"))
+        return self.update_meta(status=status, closed_at=_now(),
+                                cobertura={"achados_por_estado": by,
+                                           "nao_revisados": nao_revisados,
+                                           "evidencias": len(self.evidence())})
 
     def evidence(self) -> list:
         return self._load("evidence")

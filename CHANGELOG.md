@@ -4,6 +4,16 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Corrigido (revisão de sessão 2026-09-23)
+- Sessão agora grava MANIFESTO (versão, commit, install_mode, hash_convention).
+- Decisões de validação PERSISTIDAS por achado (`finding set-status`: status +
+  quem/quando/motivo/alternativas; 'confirmado' passa pelo portão can_confirm).
+- `session close` encerra com retrato de cobertura; relatório separa REVISADOS
+  de NÃO-REVISADOS (amostragem não vira conclusão ampla).
+- Correção honesta: Claude Code É automatizável em CI (`claude -p`); bloqueio é
+  auth/orçamento no runner, não impossibilidade.
+
+
 ### Corrigido (revisão externa 2026-09-22)
 - **Confirmação exige prova real:** `Evidence`/`can_confirm`/`validate_confirmation`
   agora checam que o **artefato existe** e o **hash bate** (sobre bytes — evita
