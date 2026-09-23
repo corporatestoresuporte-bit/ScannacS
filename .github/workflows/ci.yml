@@ -116,3 +116,29 @@ jobs:
           echo "$OUT"
           echo "$OUT" | grep -q "Trivy IaC" || { echo "FALHOU: Trivy nao apontou misconfig"; exit 1; }
           echo "OK: Trivy apontou misconfig de IaC no laboratorio."
+
+  zap-lab:
+    needs: unittest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: DAST real (ZAP baseline) contra servidor local sem headers
+        shell: bash
+        env:
+          PYTHONPATH: src
+        run: |
+          echo '<html><body>lab</body></html>' > "$RUNNER_TEMP/index.html"
+          nohup python -m http.server 8000 --directory "$RUNNER_TEMP" >/dev/null 2>&1 &
+          sleep 2
+          mkdir -p "$RUNNER_TEMP/zap"; chmod 777 "$RUNNER_TEMP/zap"
+          docker run --rm --network host -v "$RUNNER_TEMP/zap:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy zap-baseline.py \
+            -t http://localhost:8000 -J report.json -I || true
+          test -f "$RUNNER_TEMP/zap/report.json" || { echo "FALHOU: ZAP sem report"; exit 1; }
+          OUT=$(python -m agente zap-import "$RUNNER_TEMP/zap/report.json" --target http://localhost:8000)
+          echo "$OUT"
+          echo "$OUT" | grep -q "ZAP:" || { echo "FALHOU: nenhum alerta ZAP"; exit 1; }
+          echo "OK: ZAP baseline detectou alertas no laboratorio local."

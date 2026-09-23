@@ -14,7 +14,7 @@ Referências de requisito: OWASP ASVS/WSTG e API Security 2023 (ver README/links
 | Autorização e privilégios | 🟡 | `replay` (IDOR/BOLA/mass) | resposta preservada | Precisa de 2 contas de teste (manual); efeito no servidor não é auto-confirmado |
 | Entrada e processamento | 🟡 | `sqlmap`, `codereview` (XSS) | saída sqlmap / arquivo:linha | Sem template injection / traversal / deserialização ativos |
 | Navegador e transporte | 🟡 | `tls` (✅), `cabecalhos-seguranca` | handshake / headers | TLS forte ✅; CSP/CORS/CSRF/cache: só presença de header, sem teste ativo |
-| APIs e consumo | 🟡 | `replay` | resposta preservada | Sem GraphQL/WebSocket; rate-limit é best-effort |
+| APIs e consumo | 🟡 | `replay` + `dast` (ZAP) | resposta preservada | ZAP baseline (validado em CI lab). Sem GraphQL/WebSocket; rate-limit best-effort |
 | Requisições e replay | ✅ | `replay` (+ `--har`) | resposta + baseline | Importa HAR; controle de efeito colateral. Proxy dedicado ainda não |
 | Banco e Supabase | 🟡 | `codereview` (RLS em migrations) | arquivo:linha SQL | **Não acessa o banco ao vivo** — distingue migration histórica de baseline, mas não `pg_policies` real |
 | Servidor, firewall, nuvem | 🟡 | `nmap` (externo) | saída nmap | Sem acesso SSH/IAM/K8s; scan externo só vê exposição observável |
@@ -29,8 +29,8 @@ Análise local: `codereview` (SAST-leve). Ativo: `replay`.
 
 ## Integrados vs não integrados (Seção 9)
 Integrados e exercitados: **OSV** (`deps`), **CISA KEV + FIRST EPSS** (priorização
-em `deps`), **Semgrep** (`sast`) e **Trivy** (`iac`), validados em CI Linux. Não integrados ainda: `ZAP` (DAST/proxy). Próximo passo; **não** contado
-como cobertura pronta.
+em `deps`), **Semgrep** (`sast`) e **Trivy** (`iac`), validados em CI Linux. Integrados: **ZAP** (`dast`/`zap-import`, validado em CI lab). Falta: proxy
+dedicado de captura e fluxos autenticados profundos.
 
 ## Limitações estruturais
 - Sem sandbox de isolamento no Windows nativo (contenção é escopo + hook +

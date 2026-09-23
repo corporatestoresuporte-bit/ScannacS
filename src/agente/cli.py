@@ -607,6 +607,47 @@ def cmd_sast(a) -> int:
     return 0
 
 
+def cmd_zap_import(a) -> int:
+    """Importa um relatório JSON do ZAP como achados."""
+    from pathlib import Path
+    from . import dast
+    p = Path(a.json)
+    if not p.exists():
+        _p(f"Arquivo não encontrado: {a.json}")
+        return 1
+    findings = dast.parse_zap(p.read_text(encoding="utf-8", errors="replace"),
+                              target=a.target)
+    sess = Session.active() or Session.create(environment="dast")
+    for f in findings:
+        sess.add_finding(f.to_dict())
+    _p(f"ZAP: {len(findings)} alerta(s) importado(s) (sessão {sess.id})")
+    for f in findings:
+        _p(f"  [{f.severity.value.upper()}] {f.title}")
+    return 0
+
+
+def cmd_dast(a) -> int:
+    """DAST via ZAP baseline (Docker), só contra alvo no escopo + posse."""
+    from . import dast, replay
+    scope = scope_mod.load_scope()
+    ok, reason = replay.authorized_target(a.url, scope)
+    if not ok:
+        _p(f"BLOQUEADO: {reason}")
+        return 2
+    sess = Session.active() or Session.create(environment="dast")
+    _p("Rodando ZAP baseline (Docker)… pode levar alguns minutos.")
+    findings, limits = dast.run_zap_baseline(a.url, target=a.url,
+                                             host_network=a.host_network)
+    for f in findings:
+        sess.add_finding(f.to_dict())
+    _p(f"ZAP: {len(findings)} alerta(s) (sessão {sess.id})")
+    for f in findings:
+        _p(f"  [{f.severity.value.upper()}] {f.title}")
+    for lim in limits:
+        _p(f"  (limitação) {lim}")
+    return 0
+
+
 def cmd_iac(a) -> int:
     """IaC/misconfig via Trivy (roda se instalado)."""
     from pathlib import Path
@@ -1012,6 +1053,15 @@ def build_parser() -> argparse.ArgumentParser:
     ic = sub.add_parser("iac", help="IaC/misconfig via Trivy (se instalado)")
     ic.add_argument("path")
     ic.set_defaults(func=cmd_iac)
+    zi = sub.add_parser("zap-import", help="importa relatório JSON do ZAP")
+    zi.add_argument("json")
+    zi.add_argument("--target", default="")
+    zi.set_defaults(func=cmd_zap_import)
+    da = sub.add_parser("dast", help="DAST via ZAP baseline (Docker; posse+escopo)")
+    da.add_argument("url")
+    da.add_argument("--host-network", action="store_true",
+                    help="usa --network host (labs em localhost, Linux)")
+    da.set_defaults(func=cmd_dast)
     rp = sub.add_parser("replay", help="teste ativo autorizado (IDOR/mass/no-auth/rate)")
     rp.add_argument("request", nargs="?", help="arquivo JSON da requisição capturada")
     rp.add_argument("--har", default=None, help="importa requisições de um arquivo HAR")
