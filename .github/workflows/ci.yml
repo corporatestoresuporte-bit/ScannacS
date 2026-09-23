@@ -95,7 +95,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Preparar ambiente REAL (Linux): instala e valida semgrep + trivy
+      - name: "Preparar ambiente REAL no Linux - instala e valida semgrep + trivy"
         shell: bash
         run: |
           python -m pip install --quiet .
