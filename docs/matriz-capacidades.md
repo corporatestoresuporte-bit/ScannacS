@@ -11,7 +11,7 @@ Referências de requisito: OWASP ASVS/WSTG e API Security 2023 (ver README/links
 | CVEs e dependências | 🟡 | `deps-osv` (`agente deps`) + nuclei | advisory OSV + KEV/EPSS | Lê lockfiles, consulta osv.dev (real) e prioriza com CISA KEV + FIRST EPSS. **Sem** imagens de container. "Afetada" != exploração |
 | Código e cadeia | 🟡 | `codereview` + `sast` (Semgrep) + **`iac` (Trivy)** | arquivo:linha | codereview (regex) + Semgrep (SAST) + Trivy (IaC/misconfig) — Semgrep e Trivy validados em CI Linux. Sem fluxo de dados interprocedural |
 | Autenticação e sessão | 🟡 | `replay` (no-auth), `codereview` | resposta preservada | Sem fluxo OAuth/OIDC completo nem teste de expiração/revogação |
-| Autorização e privilégios | 🟡 | `replay` (IDOR/BOLA/mass) | resposta preservada | Precisa de 2 contas de teste (manual); efeito no servidor não é auto-confirmado |
+| Autorização e privilégios | 🟡 | `replay` (IDOR/BOLA/mass) | resposta preservada + confirmação em lab | IDOR confirmada COM evidência e correção reconhecida em laboratório loopback (`test_lab_confirma`). Em alvo real precisa de 2 contas de teste; `no-auth` só remove headers de auth padrão (Authorization/Cookie/…), não sessão custom |
 | Entrada e processamento | 🟡 | `sqlmap`, `codereview` (XSS) | saída sqlmap / arquivo:linha | Sem template injection / traversal / deserialização ativos |
 | Navegador e transporte | 🟡 | `tls` (✅), `cabecalhos-seguranca` | handshake / headers | TLS forte ✅; CSP/CORS/CSRF/cache: só presença de header, sem teste ativo |
 | APIs e consumo | 🟡 | `replay` + `dast` (ZAP) | resposta preservada | ZAP baseline (validado em CI lab). Sem GraphQL/WebSocket; rate-limit best-effort |
@@ -40,7 +40,17 @@ Integrados e exercitados em CI: **OSV** (`deps`), **CISA KEV + FIRST EPSS**
 - Cobertura por amostragem em grupos grandes de achados estáticos.
 
 ## Estado de verificação (o que foi realmente testado, e onde)
-- **96 testes unittest (stdlib)** — passam localmente (Windows, Python 3.13).
+- **117 testes unittest (stdlib)** — passam localmente (Windows, Python 3.13).
+- **Confirmação COM evidência + reconhecimento de correção** (`test_lab_confirma`):
+  laboratório executável em loopback (app + 2 contas de teste, versão vulnerável e
+  corrigida). O motor CONFIRMA a IDOR na versão vulnerável (resposta reproduzida,
+  artefato+hash), RECONHECE a correção (mesmo probe → 403, sem reprodução) e
+  o portão RECUSA confirmação forjada (sem evidência ligada). Sessão de exemplo:
+  `20260923-120327`.
+- **Fluxo completo com Claude REAL** (sessão `20260923-113935`): install →
+  init-workspace → prompt master carregado → review-code → `claude -p` triando
+  6 achados → reconcile/close → export. Hooks comprovados por `hook-audit.log`
+  (14 disparos). Ver `docs/limite-execucao-ia.md` para o limite de execução da IA.
 - **CI GitHub Actions VERDE** em **Ubuntu E Windows**, Python 3.11/3.12/3.13
   (job `unittest`) + job `instalacao` (Ubuntu e Windows): `pip install` do
   artefato e `agente doctor` num caminho com **espaço + acento**, confirmando

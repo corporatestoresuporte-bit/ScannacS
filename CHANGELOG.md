@@ -4,6 +4,26 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado (comprovação com Claude REAL 2026-09-23)
+- **Laboratório executável** (`test_lab_confirma`): app loopback + 2 contas de
+  teste, versão vulnerável e corrigida. Comprova o motor: CONFIRMA IDOR com
+  evidência reproduzida, RECONHECE a correção (probe → 403) e RECUSA confirmação
+  forjada (sem evidência ligada).
+- **Trilha de auditoria dos hooks** (`logs/hook-audit.log`): registra cada
+  chamada do PreToolUse (prova de disparo). Teste em `test_hook`.
+- **`docs/limite-execucao-ia.md`**: documenta o bloqueio do classificador ao
+  disparo de scan ofensivo pela IA e classifica o produto como semiautomático.
+
+### Corrigido (comprovação com Claude REAL 2026-09-23)
+- Relatório mostrava `0/0/0` escondendo achados `inconclusivo`; agora há seção
+  **INCONCLUSIVOS** no corpo (`test_report`).
+- Exportação de trechos dizia "segredos redigidos" mas vazava `sk_live`/JWT;
+  redação corrigida (nomes camelCase/underscore + formatos JWT/Stripe/AWS/
+  GitHub/Slack/PEM) — `test_redaction`, `test_codeexport`.
+- Versão unificada (fonte única via `importlib.metadata`); fim da divergência
+  `__version__` 0.1.0 vs `pyproject` 0.2.0.
+- Workspace instalado não leva mais `PYTHONPATH=src` (era só do checkout).
+
 ### Corrigido (revisão de sessão 2026-09-23)
 - Sessão agora grava MANIFESTO (versão, commit, install_mode, hash_convention).
 - Decisões de validação PERSISTIDAS por achado (`finding set-status`: status +

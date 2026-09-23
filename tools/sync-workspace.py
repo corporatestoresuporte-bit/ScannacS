@@ -7,6 +7,7 @@ materializa. Rode ANTES de empacotar/release. Não copia segredos/escopo/
 sessões/relatórios (não estão nesses itens).
 """
 
+import json
 import shutil
 from pathlib import Path
 
@@ -39,6 +40,21 @@ def main() -> int:
         else:
             shutil.copy2(src, dst)
         print(f"ok: {item}" + (" (empacotado como claude_ws)" if dstname != item else ""))
+    # PYTHONPATH=src só vale no checkout (dev). No workspace instalado o `agente`
+    # resolve do site-packages; deixar `env.PYTHONPATH` confunde e aponta pra uma
+    # pasta inexistente. Remove do template empacotado (o `.claude` do repo mantém).
+    st = DST / "claude_ws" / "settings.json"
+    if st.exists():
+        cfg = json.loads(st.read_text(encoding="utf-8"))
+        env = cfg.get("env")
+        if isinstance(env, dict):
+            env.pop("PYTHONPATH", None)
+            if not env:
+                cfg.pop("env", None)
+            st.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n",
+                          encoding="utf-8")
+            print("ok: settings.json empacotado sem PYTHONPATH (modo instalado)")
+
     n = sum(1 for _ in DST.rglob("*") if _.is_file())
     print(f"workspace empacotado: {n} arquivo(s) em {DST}")
     return 0

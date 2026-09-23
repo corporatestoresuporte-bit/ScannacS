@@ -1,8 +1,5 @@
 {
   "$comment": "Configuração de projeto do agente-vulnerabilidades. O hook PreToolUse é o executor controlado: bloqueia ações de rede fora do escopo ou antes da autorização. Mescla com as settings do usuário.",
-  "env": {
-    "PYTHONPATH": "src"
-  },
   "permissions": {
     "allow": [
       "Bash(agente:*)",

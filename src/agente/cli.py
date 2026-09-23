@@ -870,6 +870,7 @@ def print_report(sess: Session) -> None:
     confirmados = [f for f in findings if f.get("status") == "confirmado"]
     suspeitas = [f for f in findings if f.get("status") == "suspeita"]
     descartados = [f for f in findings if f.get("status") == "descartado"]
+    inconclusivos = [f for f in findings if f.get("status") == "inconclusivo"]
     ok, incon, missing = _classify_evidence(sess.evidence())
 
     nao_revisados = [f for f in findings
@@ -888,12 +889,19 @@ def print_report(sess: Session) -> None:
         ev = ", ".join(f.get("evidence_ids", []))
         _p(f"  - [{f.get('severity')}] {f.get('title')}"
            f"{(' (evi: ' + ev + ')') if ev else ''}")
+    if inconclusivos:
+        _p(f"\nINCONCLUSIVOS (revisados, sem confirmação possível agora): "
+           f"{len(inconclusivos)}")
+        for f in inconclusivos:
+            why = (f.get("validation") or {}).get("method") or ""
+            _p(f"  - [{f.get('severity')}] {f.get('title')}"
+               f"{(' — ' + why) if why else ''}")
     if descartados:
         _p(f"\nDESCARTADOS (refutados): {len(descartados)}")
         for f in descartados:
             _p(f"  - {f.get('title')}")
     if incon:
-        _p(f"\nINCONCLUSIVOS (não terminaram/erro): {len(incon)}")
+        _p(f"\nMOTORES INCONCLUSIVOS (não terminaram/erro): {len(incon)}")
         for tool, st, why in incon:
             _p(f"  - {tool}: {st} — {why}")
     if missing:

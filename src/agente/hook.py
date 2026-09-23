@@ -95,12 +95,34 @@ def handle(payload: dict) -> int:
     return ALLOW
 
 
+def _audit(tool: str, rc: int) -> None:
+    """Trilha de auditoria: registra que o hook FOI chamado e a decisão.
+    Só acrescenta — nunca lê/decide por aqui. Falha em silêncio (não brica)."""
+    try:
+        import datetime as _dt
+
+        from . import config as _cfg
+        _cfg.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        line = json.dumps({
+            "ts": _dt.datetime.now().isoformat(timespec="seconds"),
+            "tool": tool or "?",
+            "decisao": "permitido" if rc == ALLOW else "bloqueado",
+            "rc": rc,
+        }, ensure_ascii=False)
+        with open(_cfg.LOGS_DIR / "hook-audit.log", "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     raw = ""
     try:
         raw = sys.stdin.read()
         payload = json.loads(raw) if raw.strip() else {}
-        return handle(payload)
+        rc = handle(payload)
+        _audit(payload.get("tool_name") or payload.get("tool") or "", rc)
+        return rc
     except Exception:  # nunca brica a sessão; falha fechada só se cheirar a rede
         low = raw.lower()
         if any(t in low for t in ("curl", "http://", "https://", "nmap", "wget",
