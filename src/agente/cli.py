@@ -654,6 +654,54 @@ def cmd_hook(_a) -> int:
     return hook_main()
 
 
+def cmd_banner(_a) -> int:
+    """Banner dark do projeto (usado pelo hook SessionStart do workspace)."""
+    try:
+        s = scope_mod.load_scope()
+        alvos = len(s.targets) if s else 0
+        auth = "sim" if (s and s.authorized) else "nao"
+        prompts = len(ctx.list_masters())
+    except Exception:  # noqa: BLE001
+        alvos, auth, prompts = 0, "nao", 0
+    C, G, D, R = "\033[96m", "\033[92m", "\033[90m", "\033[0m"
+    _p(f"{C}  +-------------------------------------------------+")
+    _p("  |   SCANNACS  -  auditoria dos proprios ativos      |")
+    _p(f"  +-------------------------------------------------+{R}")
+    _p(f"{D}  prompts:{prompts}  alvos:{alvos}  autorizado:{auth}{R}")
+    _p(f"{G}  Digite  /scan  para configurar/rodar a auditoria.{R}")
+    return 0
+
+
+def cmd_init_workspace(a) -> int:
+    """Materializa o workspace do Claude (CLAUDE.md, .claude, prompts) numa pasta.
+
+    Idempotente: NÃO sobrescreve arquivos existentes (preserva o que o usuário
+    editou). Não copia segredos/escopo/sessões (não estão no workspace)."""
+    from pathlib import Path
+    import shutil
+    dst = Path(a.dir).resolve()
+    srcws = config.PKG_DATA / "workspace"
+    if not srcws.exists():
+        _p(f"Workspace empacotado ausente em {srcws} "
+           "(rode tools/sync-workspace.py antes de empacotar).")
+        return 1
+    created, kept = 0, 0
+    for s in srcws.rglob("*"):
+        if not s.is_file():
+            continue
+        d = dst / s.relative_to(srcws)
+        d.parent.mkdir(parents=True, exist_ok=True)
+        if d.exists():
+            kept += 1
+            continue
+        shutil.copy2(s, d)
+        created += 1
+    config.ensure_dirs()
+    _p(f"Workspace pronto em {dst}: {created} criado(s), {kept} preservado(s).")
+    _p("Abra o Claude Code nessa pasta e use /scan (a fase 2 usa os agentes/skills).")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # report — relatório de ponta a ponta a partir da sessão
 # --------------------------------------------------------------------------- #
@@ -856,6 +904,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("tools", help="lista motores/ferramentas detectadas").set_defaults(func=cmd_tools)
     sub.add_parser("report", help="relatório da sessão ativa").set_defaults(func=cmd_report)
     sub.add_parser("hook").set_defaults(func=cmd_hook)
+    sub.add_parser("banner").set_defaults(func=cmd_banner)
+    iw = sub.add_parser("init-workspace",
+                        help="materializa CLAUDE.md/.claude/prompts numa pasta")
+    iw.add_argument("dir", nargs="?", default=".")
+    iw.set_defaults(func=cmd_init_workspace)
     sub.add_parser("integracoes").set_defaults(func=cmd_integracoes)
 
     return p
