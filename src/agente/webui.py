@@ -363,6 +363,8 @@ def _run_code_target(sess, folder: str, options: dict):
     from . import codereview, codeexport, deps as deps_mod, sast, iac
     root = Path(folder)
 
+    if _cancelled():
+        return
     # 1) SAST-leve local (codereview)
     idx = _add_step("codereview (SAST-leve)", folder, "code")
     _upd_step(idx, status="running", started=_now())
@@ -378,6 +380,8 @@ def _run_code_target(sess, folder: str, options: dict):
     _set(findings=len(sess.findings()))
 
     # 2) dependências vulneráveis (OSV + KEV/EPSS)
+    if _cancelled():
+        return
     idx = _add_step("deps (OSV/KEV/EPSS)", folder, "code")
     _upd_step(idx, status="running", started=_now())
     try:
@@ -391,6 +395,8 @@ def _run_code_target(sess, folder: str, options: dict):
     _set(findings=len(sess.findings()))
 
     # 3) SAST real (Semgrep) — se instalado
+    if _cancelled():
+        return
     idx = _add_step("sast (Semgrep)", folder, "code")
     import shutil as _sh
     if _sh.which("semgrep") is None:
@@ -408,6 +414,8 @@ def _run_code_target(sess, folder: str, options: dict):
     _set(findings=len(sess.findings()))
 
     # 4) IaC/misconfig (Trivy) — se instalado
+    if _cancelled():
+        return
     idx = _add_step("iac (Trivy)", folder, "code")
     if _sh.which("trivy") is None:
         _upd_step(idx, status="unavailable", ended=_now(),
