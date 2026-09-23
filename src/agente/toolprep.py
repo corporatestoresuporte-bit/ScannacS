@@ -158,7 +158,7 @@ def _diagnose_one(tool: dict) -> dict:
         if not d:
             return {"state": "nao_instalada", "green": False, "version": "",
                     "detail": "ZAP roda via Docker; Docker não encontrado"}
-        rc, out = _run(["docker", "--version"], 20)
+        rc, out = _run(["docker", "--version"], 12)
         if rc == 0:
             return {"state": "precisa_config", "green": False,
                     "version": out.strip()[:60],
@@ -175,9 +175,14 @@ def _diagnose_one(tool: dict) -> dict:
         return {"state": "nao_instalada", "green": False, "version": "",
                 "detail": "não encontrada"}
 
-    # encontrada: valida versão (execução mínima = verde)
+    # encontrada: valida versão (execução mínima = verde). Timeout curto: se a
+    # ferramenta não responde rápido a --version, tratamos como precisa_config
+    # em vez de travar a interface.
     if vcmd:
-        rc, out = _run(vcmd, 60)
+        rc, out = _run(vcmd, 12)
+        if rc == 124:  # timeout na versão
+            return {"state": "precisa_config", "green": False, "version": "",
+                    "detail": f"encontrada ({found}) mas --version não respondeu a tempo"}
         if rc == 0:
             ver = _extract_version(out)
             return {"state": "funcional", "green": True, "version": ver,
@@ -221,10 +226,13 @@ def _extract_version(text: str) -> str:
 
 def diagnose(kinds: set, options: dict | None = None) -> dict:
     options = options or {}
+    # checa as ferramentas EM PARALELO (senão a soma dos --version trava a UI)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        diags = list(ex.map(_diagnose_one, TOOLS))
     items = []
-    for t in TOOLS:
+    for t, d in zip(TOOLS, diags):
         r = role(t, kinds)
-        d = _diagnose_one(t)
         items.append({"key": t["key"], "label": t["label"], "kind": t["kind"],
                       "role": r, **d,
                       "installable": t["kind"] in ("pip", "binary", "git"),
