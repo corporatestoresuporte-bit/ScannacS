@@ -4,6 +4,14 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+## [0.2.0-beta.3] - 2026-09-23
+
+Pré-release beta. Fecha os gaps de cobertura: segredo no bundle (SPA/Supabase),
+força-bruta defensiva do login, captura de sessão autenticada (rota logada/IDOR),
+SSRF ativo, GraphQL introspection + WebSocket handshake, e 403 de WAF. Sandbox
+forte segue como limitação documentada (contenção lógica: escopo+posse+hook+
+limites). Preserva beta.1 e beta.2. 154 testes; CI Ubuntu+Windows.
+
 ### Adicionado — GraphQL + WebSocket (2026-09-23)
 - Motor builtin `api-graphql-ws` (roda p/ site): **GraphQL** descobre o endpoint
   (caminhos comuns) e checa se a **introspection** está exposta (schema inteiro
