@@ -4,6 +4,12 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+## [0.2.0-beta.2] - 2026-09-23
+
+Pré-release beta semiautomática com o **app web** (`scan` abre a interface).
+Preserva a beta.1 (tag e artefatos). Força bruta de **autenticação** continua
+**desabilitada** e marcada como pendente.
+
 ### Adicionado (app web — `scan` abre a interface 2026-09-23)
 - **App web local (dark)**: `scan` (ou `agente web`/`agente ui`) sobe um servidor
   em 127.0.0.1 e abre o navegador com um assistente que conduz todo o fluxo:
