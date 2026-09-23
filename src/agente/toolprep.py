@@ -84,6 +84,8 @@ TOOLS = [
     # embutidos (sempre funcionais; sem instalar)
     {"key": "builtin-web", "label": "Motores embutidos (headers/TLS/fingerprint)",
      "kind": "builtin", "necess": {"site", "server"}, "compl": set()},
+    {"key": "bundle-audit", "label": "Segredo no bundle (JS do cliente)",
+     "kind": "builtin", "necess": {"site"}, "compl": set()},
     {"key": "codereview", "label": "Análise de código (SAST-leve)",
      "kind": "builtin", "necess": {"code"}, "compl": set()},
     {"key": "deps-osv", "label": "Dependências (OSV/KEV/EPSS)",

@@ -17,7 +17,10 @@ Regras impostas aqui (spec §7/§8):
 
 from __future__ import annotations
 
+import base64
+import json
 import os
+import re
 import shutil
 import socket
 import ssl
@@ -93,6 +96,43 @@ class Engine:
         return EvidenceTier.TOOL_OBSERVED
 
 
+# Cabeçalhos de navegador real: WAF (Cloudflare/Vercel) devolve 403 pra UA de
+# bot e às vezes pra HEAD. Usar isto + fallback HEAD->GET evita "sem-acesso".
+_BROWSER_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/125.0.0.0 Safari/537.36"),
+    "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
+               "image/avif,image/webp,*/*;q=0.8"),
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+}
+
+
+def _fetch(url: str, timeout: int = 15, method: str = "GET",
+           want_body: bool = False):
+    """GET/HEAD com cara de navegador. Se HEAD levar 403/405, cai pra GET.
+    Devolve (status, headers_dict, body_or_'', err_or_None)."""
+    for m in ([method, "GET"] if method == "HEAD" else [method]):
+        req = urllib.request.Request(url, method=m, headers=_BROWSER_HEADERS)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = (resp.read(400_000).decode("utf-8", "replace")
+                        if want_body else "")
+                return (resp.status, dict(resp.headers.items()), body, None)
+        except urllib.error.HTTPError as e:
+            if m == "HEAD" and e.code in (403, 405):
+                continue  # tenta GET
+            body = ""
+            try:
+                body = e.read(200_000).decode("utf-8", "replace") if want_body else ""
+            except Exception:  # noqa: BLE001
+                pass
+            return (e.code, dict(e.headers.items()) if e.headers else {}, body, None)
+        except Exception as e:  # noqa: BLE001
+            return (None, {}, "", str(e))
+    return (None, {}, "", "sem resposta")
+
+
 # ------------------------------------------------------------------ embutidos
 class HeadersEngine(Engine):
     name = "cabecalhos-seguranca"
@@ -102,14 +142,14 @@ class HeadersEngine(Engine):
         return f"[builtin] GET {_url(target)} (cabeçalhos)"
 
     def collect(self, target: Target) -> tuple[str, CollectionStatus]:
-        req = urllib.request.Request(_url(target), method="HEAD",
-                                     headers={"User-Agent": "agente-auditoria"})
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                hdrs = dict(resp.headers.items())
-        except Exception as e:  # noqa: BLE001
-            return (f"(erro/sem-acesso: {e})", CollectionStatus.NO_ACCESS)
-        raw = "\n".join(f"{k}: {v}" for k, v in hdrs.items())
+        status, hdrs, _body, err = _fetch(_url(target), method="HEAD")
+        if err is not None:
+            return (f"(erro/sem-acesso: {err})", CollectionStatus.NO_ACCESS)
+        if status is not None and status >= 400:
+            # respondeu, mas negou (ex.: 403 WAF): ainda dá pra ler os headers
+            if not hdrs:
+                return (f"(erro/sem-acesso: HTTP {status})", CollectionStatus.NO_ACCESS)
+        raw = f"status: {status}\n" + "\n".join(f"{k}: {v}" for k, v in hdrs.items())
         return (raw, CollectionStatus.OK)
 
     def interpret(self, target, raw, status):
@@ -175,15 +215,133 @@ class HttpFingerprintEngine(Engine):
         return f"[builtin] fingerprint {_url(target)}"
 
     def collect(self, target: Target) -> tuple[str, CollectionStatus]:
-        req = urllib.request.Request(_url(target),
-                                     headers={"User-Agent": "agente-auditoria"})
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                raw = f"status: {resp.status}\n" + \
-                      "\n".join(f"{k}: {v}" for k, v in resp.headers.items())
-        except Exception as e:  # noqa: BLE001
-            return (f"(erro/sem-acesso: {e})", CollectionStatus.NO_ACCESS)
+        status, hdrs, _body, err = _fetch(_url(target), method="GET")
+        if err is not None:
+            return (f"(erro/sem-acesso: {err})", CollectionStatus.NO_ACCESS)
+        raw = f"status: {status}\n" + "\n".join(f"{k}: {v}" for k, v in hdrs.items())
         return (raw, CollectionStatus.OK)
+
+
+# ------------------------------------------- auditoria do bundle/JS (segredo SPA)
+_SCRIPT_SRC = re.compile(r"""<script[^>]+src=["']([^"']+)["']""", re.I)
+_INLINE = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.I | re.S)
+
+# formatos de segredo de ALTA confiança que NUNCA deveriam ir pro cliente.
+# (anon key do Supabase é pública por design -> NÃO entra aqui.)
+_BUNDLE_SECRETS = [
+    ("Stripe secret (sk_live/sk_test)", "critica",
+     re.compile(r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}")),
+    ("AWS access key id", "critica", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("GitHub token", "critica", re.compile(r"\bghp_[A-Za-z0-9]{20,}")),
+    ("Google API key", "alta", re.compile(r"\bAIza[0-9A-Za-z_\-]{20,}")),
+    ("Chave privada (PEM)", "critica",
+     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+]
+_JWT = re.compile(r"eyJ[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{4,}")
+
+
+def _jwt_is_service_role(tok: str) -> bool:
+    try:
+        payload = tok.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        data = base64.urlsafe_b64decode(payload).decode("utf-8", "replace")
+        return '"role":"service_role"' in data.replace(" ", "")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _scan_bundle_secrets(text: str) -> list[dict]:
+    """Acha segredos de alta confiança. Devolve tipo+severidade+amostra REDIGIDA
+    (nunca o segredo cru)."""
+    hits: list[dict] = []
+    seen: set = set()
+    for label, sev, rx in _BUNDLE_SECRETS:
+        for m in rx.finditer(text):
+            val = m.group(0)
+            key = (label, val[:12])
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append({"tipo": label, "sev": sev,
+                         "amostra": val[:6] + "…(redigido)"})
+    for m in _JWT.finditer(text):
+        tok = m.group(0)
+        if _jwt_is_service_role(tok):
+            key = ("service_role", tok[:12])
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append({"tipo": "Supabase service_role key (JWT)",
+                         "sev": "critica", "amostra": "eyJ…(redigido)"})
+    return hits
+
+
+class BundleAuditEngine(Engine):
+    """Baixa o HTML + os scripts MESMO-ORIGEM (leitura) e procura segredo que
+    vazou pro cliente. É o risco real de SPA/Supabase que scan externo não pega."""
+    name = "bundle-audit"
+    keys = ("bundle", "js", "segredo-bundle", "bundle-audit")
+
+    def command(self, target: Target) -> str:
+        return f"[builtin] auditoria de segredo no bundle {_url(target)}"
+
+    def _same_origin_srcs(self, html: str, base: str, host: str) -> list[str]:
+        from urllib.parse import urljoin, urlparse
+        out, seen = [], set()
+        for src in _SCRIPT_SRC.findall(html):
+            full = urljoin(base, src)
+            if urlparse(full).hostname == host and full not in seen:
+                seen.add(full)
+                out.append(full)
+        return out
+
+    def collect(self, target: Target) -> tuple[str, CollectionStatus]:
+        base = _url(target)
+        host = _host(target)
+        status, _h, html, err = _fetch(base, want_body=True)
+        if err is not None:
+            return (f"(erro/sem-acesso: {err})", CollectionStatus.NO_ACCESS)
+        secrets: list[dict] = []
+        # scripts inline
+        for inline in _INLINE.findall(html or ""):
+            for hit in _scan_bundle_secrets(inline):
+                secrets.append({**hit, "arquivo": "(inline no HTML)"})
+        srcs = self._same_origin_srcs(html or "", base, host)
+        scanned = 0
+        for s in srcs[:25]:            # teto de arquivos
+            st, _hh, body, e = _fetch(s, want_body=True, timeout=20)
+            if e is not None or not body:
+                continue
+            scanned += 1
+            for hit in _scan_bundle_secrets(body):
+                secrets.append({**hit, "arquivo": s})
+        raw = json.dumps({"scripts_encontrados": len(srcs),
+                          "scripts_lidos": scanned,
+                          "segredos": secrets}, ensure_ascii=False, indent=2)
+        return (raw, CollectionStatus.OK)
+
+    def interpret(self, target, raw, status):
+        if status != CollectionStatus.OK:
+            return []
+        try:
+            d = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            return []
+        sevmap = {"critica": Severity.CRITICAL, "alta": Severity.HIGH,
+                  "media": Severity.MEDIUM}
+        out = []
+        for s in d.get("segredos", []):
+            out.append(Finding(
+                target=target.value,
+                title=f"Segredo no bundle do cliente: {s['tipo']}",
+                status=Status.SUSPECTED,
+                severity=sevmap.get(s.get("sev"), Severity.HIGH),
+                impact="Segredo servido no JS do navegador — qualquer visitante "
+                       f"consegue ler ({s.get('arquivo','')}).",
+                remediation="Tirar o segredo do front; usar backend/variável "
+                            "server-side; ROTACIONAR a chave exposta.",
+                engine=self.name))
+        return out
 
 
 # ---------------------------------------------------------- ferramentas externas
@@ -289,7 +447,7 @@ class ContentDiscoveryEngine(Engine):
 
 def all_engines() -> list[Engine]:
     return [HeadersEngine(), TlsEngine(), HttpFingerprintEngine(),
-            ContentDiscoveryEngine(), *_external()]
+            BundleAuditEngine(), ContentDiscoveryEngine(), *_external()]
 
 
 def engines_for(test_key: str) -> list[Engine]:
@@ -395,7 +553,8 @@ def run_engine(session, scope: Scope, target: Target, engine: Engine,
         return EngineResult(evidence=ev, suspicions=[])
 
     # 4) coleta
-    if isinstance(engine, (HeadersEngine, TlsEngine, HttpFingerprintEngine)):
+    if isinstance(engine, (HeadersEngine, TlsEngine, HttpFingerprintEngine,
+                           BundleAuditEngine)):
         raw, status = engine.collect(target)
         rc = 0 if status == CollectionStatus.OK else None
     else:

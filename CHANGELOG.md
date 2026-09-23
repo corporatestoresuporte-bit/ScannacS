@@ -4,6 +4,18 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado/Corrigido — cobertura de SPA + WAF (2026-09-23)
+- **Segredo no bundle (novo motor `bundle-audit`)**: baixa o HTML + os scripts
+  MESMO-ORIGEM (leitura) e acha segredo servido ao cliente — Supabase
+  **service_role** (JWT decodificado), Stripe `sk_live`, AWS `AKIA`, GitHub
+  `ghp_`, Google API key, chave PEM. É o risco real de SPA/Supabase que scan
+  externo comum não pega; a amostra no artefato é **redigida** (não vaza o
+  segredo). Anon key do Supabase (pública por design) NÃO vira achado.
+- **403 de WAF corrigido**: os motores embutidos (cabeçalhos/fingerprint) usam
+  cabeçalhos de navegador real + fallback HEAD→GET, então Cloudflare/Vercel não
+  devolvem mais "sem-acesso".
+- Testes: `test_bundle` (loopback). 132 testes verdes.
+
 ### Adicionado — "Preparar ambiente" pela interface (2026-09-23)
 - Botão **Preparar ambiente** no app: detecta, instala e valida as ferramentas do
   perfil (alvos escolhidos), com progresso e erros em português. `src/agente/
