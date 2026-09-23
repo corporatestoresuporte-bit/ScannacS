@@ -33,3 +33,6 @@ htmlcov/
 *.swp
 .DS_Store
 Thumbs.db
+
+# binários instalados pela interface (nao versionar)
+bin/

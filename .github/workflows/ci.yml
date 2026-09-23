@@ -87,6 +87,35 @@ jobs:
               httpd.shutdown(); httpd.server_close()
           PY
 
+  toolprep-lab:
+    needs: unittest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Preparar ambiente REAL (Linux): instala e valida semgrep + trivy
+        shell: bash
+        run: |
+          python -m pip install --quiet .
+          python - <<'PY'
+          from agente import toolprep
+          info = toolprep.os_info()
+          assert info["os"] == "linux", info
+          print("SO detectado:", info)
+          res = toolprep.prepare({"code"}, {}, only=["semgrep", "trivy"])
+          r = res["results"]
+          print("resultados:", {k: (v["ok"], v.get("state")) for k, v in r.items()})
+          assert r["semgrep"]["ok"], r["semgrep"]      # pip
+          assert r["trivy"]["ok"], r["trivy"]          # binário oficial baixado
+          # verde = executa: confirma no diagnóstico final
+          d = {t["key"]: t for t in res["diag"]["tools"]}
+          assert d["semgrep"]["green"] and d["semgrep"]["state"] == "funcional"
+          assert d["trivy"]["green"] and d["trivy"]["state"] == "funcional"
+          print("OK: Preparar ambiente instalou e deixou semgrep+trivy FUNCIONAIS no Linux")
+          PY
+
   semgrep-lab:
     needs: unittest
     runs-on: ubuntu-latest

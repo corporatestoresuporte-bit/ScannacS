@@ -51,6 +51,24 @@ PROMPTS_DIR = DATA_HOME / "prompts"
 MASTERS_DIR = PROMPTS_DIR / "masters"
 REPORTS_DIR = DATA_HOME / "reports"
 LOGS_DIR = DATA_HOME / "logs"
+BIN_DIR = DATA_HOME / "bin"   # binários instalados pela interface (nuclei/trivy/ffuf…)
+
+
+def augment_path() -> None:
+    """Garante que o executor ENCONTRE o que a interface instalou.
+
+    Prepende o BIN_DIR (binários baixados) e o Scripts/bin do Python atual
+    (ferramentas via pip) ao PATH do processo. Idempotente."""
+    import sys
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    extra = [str(BIN_DIR)]
+    pybin = Path(sys.executable).parent            # .../Python/Scripts no Win? não:
+    extra.append(str(pybin))                        # dir do python
+    extra.append(str(pybin / "Scripts"))            # Windows: console scripts
+    extra.append(str(pybin.parent / "bin"))         # POSIX venv: bin
+    new = [p for p in extra if p and p not in parts]
+    if new:
+        os.environ["PATH"] = os.pathsep.join(new + parts)
 
 SCOPE_FILE = CONFIG_DIR / "scope.toml"
 SETTINGS_FILE = CONFIG_DIR / "settings.toml"
@@ -66,7 +84,8 @@ WORDLIST = PKG_DATA / "wordlists" / "comum.txt"
 
 def ensure_dirs() -> None:
     """Cria os diretórios de dados graváveis (idempotente)."""
-    for d in (CONFIG_DIR, MASTERS_DIR, PROMPTS_DIR / "inbox", REPORTS_DIR, LOGS_DIR):
+    for d in (CONFIG_DIR, MASTERS_DIR, PROMPTS_DIR / "inbox", REPORTS_DIR, LOGS_DIR,
+              BIN_DIR):
         try:
             d.mkdir(parents=True, exist_ok=True)
         except OSError:

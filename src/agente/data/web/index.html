@@ -116,7 +116,18 @@ footer{margin-top:30px;color:var(--dim);font-size:12px;text-align:center}
     <label title="requer contas de teste e limites"><input type="checkbox" id="opt_authbf" disabled> Força bruta de autenticação (contas de teste + limites — configuração dedicada, em breve)</label>
   </div>
 
-  <div id="deps" class="card"><div class="muted">verificando ferramentas…</div></div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="muted">Ambiente de ferramentas (por alvo)</div>
+      <div class="row">
+        <button id="prepbtn" onclick="prepare()">⚙ Preparar ambiente</button>
+        <button class="ghost small" onclick="diagnoseTools()">rediagnosticar</button>
+      </div>
+    </div>
+    <div id="diag"><div class="muted small">diagnóstico aparece ao adicionar um alvo.</div></div>
+    <div id="prep" class="hidden"><div class="bar"><i id="prepbar"></i></div><pre id="preplog" class="small"></pre></div>
+    <div id="caps" class="hidden"></div>
+  </div>
 
   <h2>3 · Resumo</h2>
   <div class="card" id="summary"><div class="muted">adicione ao menos um alvo.</div></div>
@@ -163,9 +174,9 @@ function addTarget(){
   const kind=$("#kind").value, val=$("#tval").value.trim();
   if(!val) return;
   targets.push({kind,value:val,verified:kind==="code"});
-  $("#tval").value=""; renderTargets(); syncProject();
+  $("#tval").value=""; renderTargets(); syncProject(); diagnoseTools();
 }
-function delTarget(i){ targets.splice(i,1); renderTargets(); syncProject(); }
+function delTarget(i){ targets.splice(i,1); renderTargets(); syncProject(); diagnoseTools(); }
 function renderTargets(){
   const box=$("#targets");
   if(!targets.length){ box.innerHTML='<div class="muted">nenhum alvo ainda.</div>'; return;}
@@ -213,15 +224,76 @@ async function syncProject(){
   const ready = targets.length && needs.length===0;
   $("#startbtn").disabled=!ready;
 }
-async function loadDeps(){
-  try{
-    const d=await api("/api/deps",null,"GET");
-    const t=d.tools||{};
-    const cells=Object.entries(t).map(([k,ok])=>
-      `<div class="tool">${esc(k)} <span class="${ok?'ok':'no'}">${ok?'✓ ok':'ausente'}</span></div>`).join("");
-    const miss=(d.missing||[]).length?`<div class="small muted" style="margin-top:8px">Ausentes (opcionais): ${(d.missing).map(esc).join(", ")}. Instale conforme docs para ampliar a cobertura — nada é escondido.</div>`:"";
-    $("#deps").innerHTML=`<div class="muted" style="margin-bottom:8px">Ferramentas detectadas</div><div class="toolgrid">${cells}</div>${miss}`;
-  }catch(e){ $("#deps").innerHTML='<div class="err small">falha ao checar ferramentas</div>'; }
+const ROLE_LBL={necessaria:"necessária",complementar:"complementar",nao_aplicavel:"não aplicável"};
+const STATE_LBL={funcional:"✓ funcional",nao_instalada:"não instalada",
+  instalada_nao_localizada:"instalada, fora do PATH",incompativel:"incompatível",
+  precisa_config:"precisa configurar"};
+const STATE_COLOR={funcional:"var(--green)",nao_instalada:"var(--amber)",
+  instalada_nao_localizada:"var(--blue)",incompativel:"var(--red)",precisa_config:"var(--amber)"};
+
+async function diagnoseTools(){
+  const p=project();
+  if(!p.targets.length){ $("#diag").innerHTML='<div class="muted small">diagnóstico aparece ao adicionar um alvo.</div>'; return; }
+  $("#diag").innerHTML='<div class="muted small">diagnosticando…</div>';
+  let d; try{ d=await api("/api/diagnose",p); }catch(e){ $("#diag").innerHTML='<div class="err small">falha no diagnóstico</div>'; return; }
+  window._lastDiag=d;
+  const order={necessaria:0,complementar:1,nao_aplicavel:2};
+  const rel=d.tools.filter(t=>t.role!=="nao_aplicavel").sort((a,b)=>order[a.role]-order[b.role]);
+  const cells=rel.map(t=>{
+    const c=STATE_COLOR[t.state]||"var(--dim)";
+    const ver=t.version?` <span class="muted">${esc(t.version)}</span>`:"";
+    return `<div class="tool" style="border-left:3px solid ${c}">
+      <div><b>${esc(t.label)}</b></div>
+      <div class="small"><span class="pill">${ROLE_LBL[t.role]}</span>
+        <span style="color:${c}">${STATE_LBL[t.state]||t.state}</span>${ver}</div>
+      ${t.detail?`<div class="small muted">${esc(t.detail)}</div>`:""}</div>`;
+  }).join("");
+  const na=d.tools.filter(t=>t.role==="nao_aplicavel").map(t=>t.key);
+  const naTxt=na.length?`<div class="small muted" style="margin-top:6px">não aplicável a este alvo: ${na.map(esc).join(", ")}</div>`:"";
+  const ess=(d.resumo.essenciais_faltando||[]);
+  const essTxt=ess.length?`<div class="err small" style="margin-top:6px">essencial faltando: ${ess.map(esc).join(", ")} — clique "Preparar ambiente"</div>`:"";
+  $("#diag").innerHTML=`<div class="small muted" style="margin:6px 0">SO: ${esc(d.os.os)}${d.os.distro?" ("+esc(d.os.distro)+")":""} · verde = testada e funcional</div>
+    <div class="toolgrid">${cells}</div>${naTxt}${essTxt}`;
+}
+
+async function prepare(){
+  const p=project();
+  if(!p.targets.length){ alert("adicione um alvo primeiro"); return; }
+  $("#prepbtn").disabled=true; $("#prep").classList.remove("hidden"); $("#caps").classList.add("hidden");
+  $("#preplog").textContent="iniciando preparo do ambiente…\n";
+  const r=await api("/api/prepare",p);
+  if(!r.ok){ $("#preplog").textContent+=(r.error||"não foi possível iniciar")+"\n"; $("#prepbtn").disabled=false; return; }
+  let seen=0;
+  const iv=setInterval(async()=>{
+    let s; try{ s=await api("/api/prepare_state",null,"GET"); }catch(e){ return; }
+    const evs=s.events||[];
+    for(;seen<evs.length;seen++){
+      const e=evs[seen];
+      if(e.msg) $("#preplog").textContent+="  "+e.msg+"\n";
+      if(e.start) $("#preplog").textContent+="▶ "+(e.label||e.key)+"\n";
+      if(e.done) $("#preplog").textContent+=(e.ok?"✓ ":(e.intervention?"⚠ ":"✗ "))+(e.key)+
+        (e.version?(" "+e.version):"")+(e.detail?(" — "+e.detail):"")+"\n";
+    }
+    const total=Math.max(1,evs.filter(e=>e.start||e.done).length);
+    $("#prepbar").style.width=Math.min(100,seen/total*100)+"%";
+    $("#preplog").scrollTop=$("#preplog").scrollHeight;
+    if(s.done){
+      clearInterval(iv); $("#prepbar").style.width="100%"; $("#prepbtn").disabled=false;
+      await diagnoseTools(); showCaps(s.result); syncProject();
+    }
+  },700);
+}
+
+function showCaps(result){
+  const d=window._lastDiag; if(!d){return;}
+  const ok=d.tools.filter(t=>t.green&&t.role!=="nao_aplicavel").map(t=>t.label);
+  const lim=d.tools.filter(t=>!t.green&&t.role!=="nao_aplicavel");
+  const limTxt=lim.map(t=>`<li>${esc(t.label)} — <span style="color:${STATE_COLOR[t.state]}">${STATE_LBL[t.state]||t.state}</span>${t.intervention?" (ação sua: "+esc(t.detail)+")":""}</li>`).join("");
+  $("#caps").classList.remove("hidden");
+  $("#caps").innerHTML=`<h3 style="margin:12px 0 6px;font-size:14px">Capacidades disponíveis</h3>
+    <div class="small" style="color:var(--green)">${ok.length?ok.map(esc).join(" · "):"(só motores embutidos)"}</div>
+    ${lim.length?`<h3 style="margin:12px 0 6px;font-size:14px">Ainda limitadas</h3><ul class="small muted">${limTxt}</ul>`:""}
+    <div class="small" style="margin-top:8px;color:var(--green)">Pronto — volte ao passo 1/2 e clique "Iniciar análise".</div>`;
 }
 async function start(){
   const p=project();
@@ -264,7 +336,7 @@ async function api(path,body,method){
   if(body) opt.body=JSON.stringify(body);
   const r=await fetch(path,opt); return await r.json();
 }
-renderTargets(); loadDeps(); syncProject();
+renderTargets(); diagnoseTools(); syncProject();
 $("#opt_discovery").onchange=$("#opt_aggr").onchange=syncProject;
 </script>
 </body>

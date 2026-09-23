@@ -26,7 +26,14 @@ from pathlib import Path
 from . import config
 from . import engines as engines_mod
 from . import scope as scope_mod
+from . import toolprep
 from .store import Session
+
+# alvo do wizard -> perfil de ferramentas
+_KIND_MAP = {"code": "code", "url": "site", "domain": "site", "ip": "server"}
+
+_PREP = {"running": False, "done": False, "events": [], "result": None}
+_PREP_LOCK = threading.Lock()
 
 _LOCK = threading.Lock()
 _PROCS: list = []          # processos externos em execução (p/ cancelamento)
@@ -186,6 +193,7 @@ def _run_project(project: dict):
     aggressive = bool(options.get("aggressive"))
     rps, maxrun = (50.0, 100000) if aggressive else (5.0, 500)
 
+    config.augment_path()   # garante que o executor ache tools instaladas na interface
     sess = Session.active() or Session.create(environment="webui")
     sess.update_meta(status="auditando")
     _set(session_id=sess.id, phase="running", started_at=_now(), findings=0)
@@ -444,6 +452,52 @@ def cancel() -> dict:
     return {"ok": True}
 
 
+def _kinds_from(payload: dict) -> set:
+    ks = set()
+    for item in payload.get("targets", []) or []:
+        k = item.get("kind") or target_kind(item.get("value", ""))
+        ks.add(_KIND_MAP.get(k, k))
+    for k in payload.get("kinds", []) or []:
+        ks.add(_KIND_MAP.get(k, k))
+    return ks or {"code", "site", "server"}
+
+
+def diagnose(payload: dict) -> dict:
+    return toolprep.diagnose(_kinds_from(payload), payload.get("options") or {})
+
+
+def prepare_start(payload: dict) -> dict:
+    with _PREP_LOCK:
+        if _PREP["running"]:
+            return {"ok": False, "error": "preparo já em andamento"}
+        _PREP.update({"running": True, "done": False, "events": [], "result": None})
+    kinds = _kinds_from(payload)
+    options = payload.get("options") or {}
+    only = payload.get("only")
+
+    def cb(ev):
+        with _PREP_LOCK:
+            _PREP["events"].append(ev)
+
+    def worker():
+        try:
+            res = toolprep.prepare(kinds, options, cb=cb, only=only)
+        except Exception as e:  # noqa: BLE001
+            res = {"error": str(e)}
+        with _PREP_LOCK:
+            _PREP["result"] = res
+            _PREP["done"] = True
+            _PREP["running"] = False
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"ok": True}
+
+
+def prepare_state() -> dict:
+    with _PREP_LOCK:
+        return json.loads(json.dumps(_PREP, default=str))
+
+
 def deps_status() -> dict:
     tools = engines_mod.detect_tools()
     hints = {
@@ -500,6 +554,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, _snapshot()); return
         if self.path == "/api/deps":
             self._send(200, deps_status()); return
+        if self.path == "/api/prepare_state":
+            self._send(200, prepare_state()); return
         if self.path == "/api/report":
             self._send(200, {"report": _snapshot().get("report", "")}); return
         if self.path == "/api/findings":
@@ -512,6 +568,10 @@ class _Handler(BaseHTTPRequestHandler):
         body = self._read_json()
         if self.path == "/api/verify":
             self._send(200, verify_target(body.get("value", ""))); return
+        if self.path == "/api/diagnose":
+            self._send(200, diagnose(body)); return
+        if self.path == "/api/prepare":
+            self._send(200, prepare_start(body)); return
         if self.path == "/api/project":
             # apenas registra os alvos/escopo (não inicia)
             try:
@@ -546,6 +606,7 @@ class _Handler(BaseHTTPRequestHandler):
 def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True,
           block: bool = True) -> ThreadingHTTPServer:
     config.ensure_dirs()
+    config.augment_path()   # executor enxerga o que a interface instalou
     httpd = ThreadingHTTPServer((host, port), _Handler)
     real_port = httpd.server_address[1]
     url = f"http://{host}:{real_port}/"

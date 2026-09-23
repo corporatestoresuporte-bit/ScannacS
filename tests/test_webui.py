@@ -14,6 +14,10 @@ import _pathshim  # noqa: F401
 from agente import store, webui
 from agente import scope as scope_mod
 
+# hermético: não depender de scanners externos que possam estar instalados na
+# máquina (semgrep/trivy deixam o fluxo de código lento e não determinístico).
+_EXTERNAL_OFF = {"semgrep", "trivy", "nuclei", "sqlmap", "ffuf", "nmap"}
+
 
 class TestWebUI(unittest.TestCase):
     def setUp(self):
@@ -25,6 +29,10 @@ class TestWebUI(unittest.TestCase):
         self._ls, self._ss = scope_mod.load_scope, scope_mod.save_scope
         scope_mod.load_scope = lambda *a, **k: scope_mod.Scope()
         scope_mod.save_scope = lambda *a, **k: None
+        # neutraliza scanners externos p/ o fluxo de código ser rápido/determinístico
+        self._which = shutil.which
+        shutil.which = lambda n, *a, **k: (None if n in _EXTERNAL_OFF
+                                           else self._which(n, *a, **k))
         # laboratório de código com um "segredo"
         self.lab = self.tmp / "code"
         self.lab.mkdir()
@@ -37,6 +45,7 @@ class TestWebUI(unittest.TestCase):
     def tearDown(self):
         store.SESSIONS_DIR, store.ACTIVE_POINTER = self._sd, self._ap
         scope_mod.load_scope, scope_mod.save_scope = self._ls, self._ss
+        shutil.which = self._which
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_verify_loopback_automatico(self):

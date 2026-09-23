@@ -4,6 +4,27 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado — "Preparar ambiente" pela interface (2026-09-23)
+- Botão **Preparar ambiente** no app: detecta, instala e valida as ferramentas do
+  perfil (alvos escolhidos), com progresso e erros em português. `src/agente/
+  toolprep.py` + endpoints `/api/diagnose`, `/api/prepare`, `/api/prepare_state`.
+- **Diagnóstico rico** distingue: `funcional` (verde = versão executa), `nao_instalada`,
+  `instalada_nao_localizada` (fora do PATH do executor), `incompativel`,
+  `precisa_config`. Classifica cada ferramenta por alvo: **necessária / complementar
+  / não aplicável** (essencial nunca aparece como "opcional"). Inclui Semgrep, Trivy
+  e ZAP no diagnóstico.
+- **Instalação de fontes oficiais**, sem sudo/admin: pip (semgrep/sslyze/wafw00f),
+  binário oficial (trivy/nuclei/ffuf via release do GitHub → `DATA_HOME/bin`), git
+  (sqlmap + wrapper). `config.BIN_DIR` + `augment_path()` deixam o **executor
+  consistente** (acha o que a interface instalou). nmap e ZAP: conduzidos como
+  **intervenção** (sistema/admin ou Docker), com texto claro e **Tentar de novo**
+  sem reinstalar tudo.
+- Correções cross-OS: wrapper `.cmd` do sqlmap usa **caminho 8.3** (evita bug de
+  acento em `Lázaro`); `_run` executa wrappers `.cmd` via `cmd /c`.
+- Força bruta de **autenticação** continua **desabilitada** e marcada como pendente.
+- CI: `test_toolprep` (hermético) + job `toolprep-lab` (Ubuntu) que instala e
+  **valida semgrep+trivy funcionais** de verdade.
+
 ## [0.2.0-beta.2] - 2026-09-23
 
 Pré-release beta semiautomática com o **app web** (`scan` abre a interface).
