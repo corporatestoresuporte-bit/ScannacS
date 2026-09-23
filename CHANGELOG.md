@@ -20,6 +20,14 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
   cliente, dado sensível retornado, `select *`, sem rate-limit.
 
 ### Adicionado
+- **CI Windows + Linux:** matriz `unittest` em ubuntu e windows (3.11/3.12/3.13)
+  + job `instalacao` que faz `pip install` do artefato e roda `agente doctor` em
+  caminho com espaço/acento (ambos SO) — verde nos runners reais.
+- **Semgrep (SAST real):** `agente sast <pasta>` (roda se instalado); validado no
+  CI Linux (job `semgrep-lab`: detecta `eval`, ignora código seguro).
+- **KEV/EPSS:** `deps` prioriza os CVEs com CISA KEV (explorado ativamente) e
+  FIRST EPSS (probabilidade) — verificado ao vivo e por mock.
+- **Importação de HAR:** `replay --har <arquivo>` importa requisições do DevTools.
 - **Empacotamento (Bloco 1):** recursos (wordlist, exemplos) viajam no pacote
   (`src/agente/data/`, via importlib.resources); dados graváveis vão para o dir
   do usuário quando instalado (nunca site-packages). Instalação a partir de

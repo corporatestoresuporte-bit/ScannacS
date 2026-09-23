@@ -529,6 +529,29 @@ def cmd_review_code(a) -> int:
     return 0
 
 
+def cmd_sast(a) -> int:
+    """SAST real via Semgrep (roda se instalado)."""
+    from pathlib import Path
+    from . import sast
+    root = Path(a.path)
+    if not root.exists():
+        _p(f"Pasta não encontrada: {a.path}")
+        return 1
+    sess = Session.active() or Session.create(environment="sast")
+    findings, limits = sast.run_semgrep(root, config=a.config)
+    for f in findings:
+        sess.add_finding(f.to_dict())
+    _p(f"SAST (Semgrep) em {root}  (sessão {sess.id})")
+    for f in findings:
+        ev = f.evidence_ids[0] if f.evidence_ids else ""
+        _p(f"  [{f.severity.value.upper()}] {f.title}  ({ev})")
+    if not findings:
+        _p("  Nenhum achado Semgrep (ou ferramenta ausente — ver limitações).")
+    for lim in limits:
+        _p(f"  (limitação) {lim}")
+    return 0
+
+
 def cmd_deps(a) -> int:
     """Scanner de dependências vulneráveis (OSV)."""
     from pathlib import Path
@@ -818,6 +841,10 @@ def build_parser() -> argparse.ArgumentParser:
     dp = sub.add_parser("deps", help="dependências vulneráveis via OSV (lockfiles)")
     dp.add_argument("path")
     dp.set_defaults(func=cmd_deps)
+    st = sub.add_parser("sast", help="SAST real via Semgrep (se instalado)")
+    st.add_argument("path")
+    st.add_argument("--config", default="auto")
+    st.set_defaults(func=cmd_sast)
     rp = sub.add_parser("replay", help="teste ativo autorizado (IDOR/mass/no-auth/rate)")
     rp.add_argument("request", nargs="?", help="arquivo JSON da requisição capturada")
     rp.add_argument("--har", default=None, help="importa requisições de um arquivo HAR")

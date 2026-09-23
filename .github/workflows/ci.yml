@@ -58,3 +58,28 @@ jobs:
           AGENTE_HOME="$D" python -m agente scope add-target --type url --value https://exemplo-proprio.example --tests all
           AGENTE_HOME="$D" python -m agente tools
           AGENTE_HOME="$D" python -m agente audit plan
+
+  semgrep-lab:
+    needs: unittest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: SAST real (Semgrep) contra laboratório vuln/seguro
+        shell: bash
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m pip install --quiet semgrep
+          semgrep --version
+          LAB="$RUNNER_TEMP/sast-lab"; mkdir -p "$LAB"
+          printf 'user = input()\neval(user)\n' > "$LAB/vuln.py"
+          printf 'x = 1 + 1\nprint(x)\n' > "$LAB/safe.py"
+          printf 'rules:\n  - id: eval-detectado\n    languages: [python]\n    severity: ERROR\n    message: uso de eval\n    pattern: eval(...)\n' > "$LAB/rule.yml"
+          OUT=$(python -m agente sast "$LAB" --config "$LAB/rule.yml")
+          echo "$OUT"
+          echo "$OUT" | grep -q "vuln.py:2" || { echo "FALHOU: nao detectou vuln.py:2"; exit 1; }
+          if echo "$OUT" | grep -q "safe.py"; then echo "FALHOU: falso-positivo em safe.py"; exit 1; fi
+          echo "OK: Semgrep detectou o caso vulneravel e ignorou o seguro."

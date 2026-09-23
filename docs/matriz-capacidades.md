@@ -8,14 +8,14 @@ Referências de requisito: OWASP ASVS/WSTG e API Security 2023 (ver README/links
 | Área (Seção 7) | Estado | Motor/skill | Evidência | Limite honesto |
 |---|---|---|---|---|
 | Inventário e exposição | 🟡 | `http-fingerprint`, `nmap`, `ffuf` | headers/portas/paths | SPA responde 200 a tudo (catch-all) — `ffuf -ac` mitiga; sem descoberta de rota logada |
-| CVEs e dependências | 🟡 | `deps-osv` (`agente deps`) + nuclei | advisory OSV (id/CVE/fonte/horário) | Lê requirements.txt/package-lock.json e consulta osv.dev (real). **Sem** imagens de container, KEV/EPSS. "Afetada" != exploração; base pode estar incompleta |
-| Código e cadeia | 🟡 | `codereview` (SAST-leve regex) | arquivo:linha | Segredo/`service_role`/RLS/XSS/rota-sem-auth/mass/IDOR(`select *`). **Sem** Semgrep/Trivy/IaC/fluxo de dados |
+| CVEs e dependências | 🟡 | `deps-osv` (`agente deps`) + nuclei | advisory OSV + KEV/EPSS | Lê lockfiles, consulta osv.dev (real) e prioriza com CISA KEV + FIRST EPSS. **Sem** imagens de container. "Afetada" != exploração |
+| Código e cadeia | 🟡 | `codereview` (regex) + **`sast` (Semgrep)** | arquivo:linha | codereview: segredo/`service_role`/RLS/XSS/rota-sem-auth/mass/IDOR. Semgrep real via `agente sast` (validado em CI Linux). **Sem** Trivy/IaC ainda |
 | Autenticação e sessão | 🟡 | `replay` (no-auth), `codereview` | resposta preservada | Sem fluxo OAuth/OIDC completo nem teste de expiração/revogação |
 | Autorização e privilégios | 🟡 | `replay` (IDOR/BOLA/mass) | resposta preservada | Precisa de 2 contas de teste (manual); efeito no servidor não é auto-confirmado |
 | Entrada e processamento | 🟡 | `sqlmap`, `codereview` (XSS) | saída sqlmap / arquivo:linha | Sem template injection / traversal / deserialização ativos |
 | Navegador e transporte | 🟡 | `tls` (✅), `cabecalhos-seguranca` | handshake / headers | TLS forte ✅; CSP/CORS/CSRF/cache: só presença de header, sem teste ativo |
 | APIs e consumo | 🟡 | `replay` | resposta preservada | Sem GraphQL/WebSocket; rate-limit é best-effort |
-| Requisições e replay | ✅ | `replay` | resposta + baseline | Controle de efeito colateral; captura HAR/proxy ainda não |
+| Requisições e replay | ✅ | `replay` (+ `--har`) | resposta + baseline | Importa HAR; controle de efeito colateral. Proxy dedicado ainda não |
 | Banco e Supabase | 🟡 | `codereview` (RLS em migrations) | arquivo:linha SQL | **Não acessa o banco ao vivo** — distingue migration histórica de baseline, mas não `pg_policies` real |
 | Servidor, firewall, nuvem | 🟡 | `nmap` (externo) | saída nmap | Sem acesso SSH/IAM/K8s; scan externo só vê exposição observável |
 | Integrações e lógica | 🟡 | `codereview` (preço/webhook) | arquivo:linha | Sem invariantes de negócio automatizadas |
@@ -27,10 +27,11 @@ Embutidos (stdlib): `cabecalhos-seguranca`, `tls`, `http-fingerprint`.
 Externos (se instalados): `nmap`, `nuclei`, `sqlmap`, `ffuf` (+ wrappers de outros).
 Análise local: `codereview` (SAST-leve). Ativo: `replay`.
 
-## NÃO integrados (candidatos — Seção 9)
-`ZAP` (DAST/proxy), `Semgrep` (SAST real), `Trivy`/`OSV` (deps/IaC/CVE),
-`KEV`/`EPSS` (priorização). Documentados como próximos passos; **não** contados
-como cobertura pronta.
+## Integrados vs não integrados (Seção 9)
+Integrados e exercitados: **OSV** (`deps`), **CISA KEV + FIRST EPSS** (priorização
+em `deps`), **Semgrep** (`sast`, validado em CI Linux). Não integrados ainda:
+`ZAP` (DAST/proxy), `Trivy` (imagens/IaC). Próximos passos; **não** contados como
+cobertura pronta.
 
 ## Limitações estruturais
 - Sem sandbox de isolamento no Windows nativo (contenção é escopo + hook +
@@ -40,18 +41,21 @@ como cobertura pronta.
 - Cobertura por amostragem em grupos grandes de achados estáticos.
 
 ## Estado de verificação (o que foi realmente testado, e onde)
-- **91 testes unittest (stdlib)** — passam localmente (Windows, Python 3.13).
-- **CI GitHub Actions VERDE** em Ubuntu, Python **3.11 / 3.12 / 3.13** (workflow
-  `testes`, verde no commit atual). **Windows NÃO está no CI** — só execução
-  local nesta máquina.
-- **Instalação a partir de artefato limpo** (git archive → venv novo → `pip
-  install`): verificada — `agente doctor` roda instalado, fora do checkout, sem
-  PYTHONPATH, com recursos resolvidos do pacote. (O `.claude/` da fase-2 vem do
-  clone do repo, não do wheel — a CLI instalada roda scan/deps/review-code/replay.)
-- **OSV**: verificado com dados reais (osv.dev) e com mock (base indisponível =
-  limitação).
-- **NÃO verificado / pendente:** empacotamento em release/ZIP publicado; CI em
-  Windows; E2E com ZAP/Semgrep/Trivy reais em laboratório; acesso a banco ao vivo.
+- **96 testes unittest (stdlib)** — passam localmente (Windows, Python 3.13).
+- **CI GitHub Actions VERDE** em **Ubuntu E Windows**, Python 3.11/3.12/3.13
+  (job `unittest`) + job `instalacao` (Ubuntu e Windows): `pip install` do
+  artefato e `agente doctor` num caminho com **espaço + acento**, confirmando
+  modo instalado e recursos resolvidos.
+- **Semgrep (SAST) validado em CI Linux** (job `semgrep-lab`): detecta o caso
+  vulnerável (`eval`) e ignora o seguro.
+- **OSV + KEV + EPSS**: verificados com dados reais (osv.dev / cisa.gov /
+  first.org) e com mock (base indisponível = limitação).
+- **Instalação a partir de artefato limpo** (git archive → venv → `pip install`)
+  verificada localmente também. O `.claude/` da fase-2 vem do clone do repo, não
+  do wheel — a CLI instalada roda scan/deps/sast/review-code/replay.
+- **NÃO verificado / pendente:** release/ZIP publicado; E2E do fluxo Claude
+  (prompts/skills/hooks/agentes) a partir do pacote instalado; Trivy/ZAP;
+  acesso a banco ao vivo.
 
 *Versão da matriz acompanha o CHANGELOG. Uma linha aqui não vira "pronto" sem
 motor + evidência + teste correspondentes.*
