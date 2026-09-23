@@ -22,7 +22,8 @@ from .findings import Finding, Severity, Status
 # pastas ignoradas na varredura
 _SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "__pycache__",
               ".next", "coverage", "playwright-report", ".claude", "worktrees",
-              "dist-worktrees"}
+              "dist-worktrees", "dist", "build", "out", ".turbo", ".cache",
+              "vendor", "bower_components", ".output", ".vercel"}
 _TEXT_EXT = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".json", ".env",
              ".sql", ".html", ".vue", ".svelte", ".py", ".txt", ".yml",
              ".yaml", ".toml", ".sh", ".template", ".local"}

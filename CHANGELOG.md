@@ -10,6 +10,11 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
   passa WAF/challenge (Cloudflare/Vercel) e login, alcançando a app real.
   `engines.set_session_headers`. test_session_headers.
 
+### Corrigido — desempenho em repos grandes (2026-09-23)
+- Semgrep agora exclui node_modules/dist/build/out/.next/coverage/vendor + teto
+  de tempo por regra (antes varria node_modules e levava ~1h). codereview também
+  pula dist/build/out/.turbo/.cache/vendor/bower_components/.output/.vercel.
+
 ### Corrigido (2026-09-23)
 - Cada "Iniciar" no app cria uma **sessão NOVA** (não acumula achados de scans
   anteriores na mesma sessão — antes o relatório inflava com duplicatas).

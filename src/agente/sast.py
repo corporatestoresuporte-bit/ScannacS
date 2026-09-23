@@ -48,7 +48,14 @@ def run_semgrep(path: Path, config: str = "auto", timeout: int = 600,
     if shutil.which("semgrep") is None:
         return [], ["semgrep não instalado (SAST real indisponível) — "
                     "instale com `pip install semgrep` (Linux/macOS/WSL)"]
-    cmd = ["semgrep", "--json", "--quiet", "--config", config, str(path)]
+    # exclui libs/build (senão varre node_modules e leva 1h); teto por regra
+    _EXC = ["node_modules", "dist", "build", "out", ".next", "coverage",
+            ".turbo", ".cache", "vendor", ".git"]
+    cmd = ["semgrep", "--json", "--quiet", "--config", config,
+           "--timeout", "30", "--timeout-threshold", "3"]
+    for e in _EXC:
+        cmd += ["--exclude", e]
+    cmd.append(str(path))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=timeout)

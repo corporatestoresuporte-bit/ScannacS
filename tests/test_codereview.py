@@ -20,8 +20,8 @@ class TestCodeReview(unittest.TestCase):
         (self.tmp / "src" / "config.ts").write_text(
             'export const KEY = "service_role";\n'
             'const api_key = "abcd1234efgh5678";\n', encoding="utf-8")
-        # sink de XSS no bundle
-        (self.tmp / "dist" / "app.js").write_text(
+        # sink de XSS no CÓDIGO-FONTE (dist/ é build gerado e agora é ignorado)
+        (self.tmp / "src" / "comp.tsx").write_text(
             'el.dangerouslySetInnerHTML = user;\n', encoding="utf-8")
         # migration sem RLS + política frouxa
         (self.tmp / "supabase" / "migrations" / "001.sql").write_text(
