@@ -62,8 +62,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
 pre{background:#06090a;border:1px solid var(--line);border-radius:8px;padding:14px;
   overflow:auto;font-family:var(--mono);font-size:12.5px;color:#c9d4cd;white-space:pre-wrap}
 .hidden{display:none}
-.toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
-.tool{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--panel2)}
+.toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.tool{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;
+  background:var(--panel2);min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.tool .small,.tool div{min-width:0;overflow-wrap:anywhere}
 .tool .ok{color:var(--green)} .tool .no{color:var(--amber)}
 .claude{border-left:3px solid var(--blue);padding-left:12px}
 .err{color:var(--red)}
