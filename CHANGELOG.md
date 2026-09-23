@@ -4,6 +4,16 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado — SSRF ativo autorizado (2026-09-23)
+- `ssrf.run_ssrf` + `agente ssrf` + campo "SSRF no parâmetro" na captura
+  autenticada: testa se um parâmetro que recebe URL faz o SERVIDOR buscar
+  endereço proibido. Usa **canário em loopback** (detecta o fetch server-side,
+  mesmo cego, quando o alvo o alcança) + sondas de **metadados de nuvem**
+  (AWS/GCP, detecção in-band). Guardrails: escopo+posse; método seguro (ou
+  opt-in); payloads limitados; canário só em loopback. SSRF cego sem canário
+  alcançável é reportado como LIMITAÇÃO (precisa coletor externo/OOB).
+  `find_url_params` acha parâmetros candidatos. test_ssrf (loopback vuln/seguro).
+
 ### Adicionado — captura de sessão autenticada (2026-09-23)
 - `authsession.parse_curl`: cola o "Copy as cURL (bash)" do DevTools (requisição
   logada) e extrai método/URL/headers (cookie/token)/corpo. Token fica REDIGIDO

@@ -827,6 +827,38 @@ def cmd_authbf(a) -> int:
     return 0
 
 
+def cmd_ssrf(a) -> int:
+    """SSRF ativo autorizado (parâmetro que recebe URL)."""
+    from pathlib import Path
+    from . import ssrf, authsession, replay
+    scope = scope_mod.load_scope()
+    sess = Session.active() or Session.create(environment="ssrf")
+    if a.curl:
+        curlf = Path(a.curl)
+        text = curlf.read_text(encoding="utf-8") if curlf.exists() else a.curl
+        d = authsession.parse_curl(text)
+        if not d["url"]:
+            _p("cURL sem URL reconhecível."); return 1
+        req = replay.Req(method=d["method"], url=d["url"], headers=d["headers"],
+                         body=d["body"])
+    elif a.url:
+        req = replay.Req(method="GET", url=a.url, headers={})
+    else:
+        _p("Informe --curl <arquivo> ou --url <url com parâmetro>."); return 1
+    try:
+        found = ssrf.run_ssrf(sess, scope, req, param=a.param,
+                              allow_side_effects=a.side_effects)
+    except (PermissionError, ValueError) as e:
+        _p(f"BLOQUEADO/erro: {e}"); return 2
+    _p(f"ssrf: sessão {sess.id}")
+    for f in found:
+        _p(f"  [{f.severity.value.upper()}] {f.title}")
+    if not found:
+        _p("Sem SSRF detectado (canário não buscado; metadados não refletidos). "
+           "SSRF cego precisa de coletor externo (OOB).")
+    return 0
+
+
 def cmd_hook(_a) -> int:
     from .hook import main as hook_main
     return hook_main()
@@ -1166,6 +1198,13 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--com-efeito-colateral", dest="side_effects",
                     action="store_true", help="obrigatório: POST muda estado")
     ab.set_defaults(func=cmd_authbf)
+    ss = sub.add_parser("ssrf", help="SSRF ativo autorizado (parâmetro que recebe URL)")
+    ss.add_argument("--curl", default=None, help="arquivo com 'Copy as cURL'")
+    ss.add_argument("--url", default=None, help="URL com o parâmetro (alt. ao cURL)")
+    ss.add_argument("--param", default=None, help="nome do parâmetro que recebe URL")
+    ss.add_argument("--com-efeito-colateral", dest="side_effects",
+                    action="store_true")
+    ss.set_defaults(func=cmd_ssrf)
     sub.add_parser("tools", help="lista motores/ferramentas detectadas").set_defaults(func=cmd_tools)
     sub.add_parser("report", help="relatório da sessão ativa").set_defaults(func=cmd_report)
     sub.add_parser("reconcile", help="reconciliação por ID dos achados").set_defaults(func=cmd_reconcile)

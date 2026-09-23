@@ -227,6 +227,8 @@ def _run_project(project: dict):
     cap = options.get("authcapture") or {}
     if cap.get("curl") and not only_claude and not _cancelled():
         _run_authcapture_step(sess, scope, cap)
+        if cap.get("ssrf_param") and not _cancelled():
+            _run_ssrf_step(sess, scope, cap)
 
     # teste de resistência do login (opção explícita) — DEFENSIVO, contas de teste
     ab = options.get("authbf") or {}
@@ -271,6 +273,34 @@ def _run_authcapture_step(sess, scope, cap: dict):
         auth = "logado" if authsession.has_auth(d["headers"]) else "sem auth no cURL"
         _upd_step(idx, status="done", ended=_now(),
                   summary=f"{auth}; {len(found)} suspeita(s)")
+    except PermissionError as e:
+        _upd_step(idx, status="skip", ended=_now(), summary=str(e)[:150])
+    except Exception as e:  # noqa: BLE001
+        _upd_step(idx, status="error", ended=_now(), summary=str(e)[:150])
+    _set(findings=len(sess.findings()))
+
+
+def _run_ssrf_step(sess, scope, cap: dict):
+    """SSRF ativo autorizado no parâmetro indicado, a partir do cURL capturado."""
+    from . import authsession, replay, ssrf
+    idx = _add_step("ssrf (parâmetro de URL)", "", "site")
+    curl = (cap.get("curl") or "").strip()
+    sparam = (cap.get("ssrf_param") or "").strip()
+    if not curl or not sparam:
+        _upd_step(idx, status="skip", ended=_now(), summary="sem cURL ou parâmetro")
+        return
+    d = authsession.parse_curl(curl)
+    if not d["url"]:
+        _upd_step(idx, status="skip", ended=_now(), summary="cURL sem URL")
+        return
+    _upd_step(idx, status="running", started=_now())
+    req = replay.Req(method=d["method"], url=d["url"], headers=d["headers"],
+                     body=d["body"])
+    try:
+        found = ssrf.run_ssrf(sess, scope, req, param=sparam,
+                              allow_side_effects=False)
+        _upd_step(idx, status="done", ended=_now(),
+                  summary=f"{len(found)} achado(s) de SSRF")
     except PermissionError as e:
         _upd_step(idx, status="skip", ended=_now(), summary=str(e)[:150])
     except Exception as e:  # noqa: BLE001
