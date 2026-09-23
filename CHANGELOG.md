@@ -20,6 +20,15 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
   cliente, dado sensível retornado, `select *`, sem rate-limit.
 
 ### Adicionado
+- **Empacotamento (Bloco 1):** recursos (wordlist, exemplos) viajam no pacote
+  (`src/agente/data/`, via importlib.resources); dados graváveis vão para o dir
+  do usuário quando instalado (nunca site-packages). Instalação a partir de
+  artefato limpo (git archive) em venv novo verificada: `agente doctor` roda
+  fora do checkout, sem PYTHONPATH, com wordlist/exemplos resolvidos.
+- **Motor de dependências (Bloco 2):** `agente deps <pasta>` consulta a base
+  **OSV** (osv.dev) a partir de requirements.txt / package-lock.json. Verificado
+  com dados reais (ex.: django 2.2.0 → CVEs reais) e com mock (base indisponível
+  = limitação, não "seguro").
 - `docs/matriz-capacidades.md`: estado honesto por área (implementado/parcial/não).
 - `agente replay` (teste ativo autorizado: IDOR/mass/no-auth/rate).
 - `agente review-code` / `scan --code` (SAST-leve local).

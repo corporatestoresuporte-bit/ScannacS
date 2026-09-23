@@ -58,6 +58,7 @@ Só a fase 1: `scan alvo --no-claude`.
 |---|---|
 | `scan <alvo> [--code <p>]` | Auditoria ponta a ponta (posse → roda tudo → relatório). |
 | `agente review-code <pasta>` | Análise de código local. |
+| `agente deps <pasta>` | Dependências vulneráveis via OSV (lockfiles). |
 | `agente replay <req.json>` | Teste ativo autorizado (IDOR/mass/no-auth/rate). |
 | `agente scope verify --target <t>` | Prova de posse do alvo (token arquivo/DNS). |
 | `agente report` | Relatório da sessão. |

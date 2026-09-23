@@ -529,6 +529,28 @@ def cmd_review_code(a) -> int:
     return 0
 
 
+def cmd_deps(a) -> int:
+    """Scanner de dependências vulneráveis (OSV)."""
+    from pathlib import Path
+    from . import deps as deps_mod
+    root = Path(a.path)
+    if not root.exists():
+        _p(f"Pasta não encontrada: {a.path}")
+        return 1
+    sess = Session.active() or Session.create(environment="deps")
+    findings, limits = deps_mod.run_deps(root, sess)
+    _p(f"Dependências (OSV) em {root}  (sessão {sess.id})")
+    for f in findings:
+        cve = f" [{f.cve}]" if f.cve else ""
+        _p(f"  [{f.severity.value.upper()}] {f.title}{cve}")
+    if not findings:
+        _p("  Nenhuma dependência vulnerável encontrada nos lockfiles lidos.")
+    for lim in limits:
+        _p(f"  (limitação) {lim}")
+    _p("Nota: 'afetada' != exploração comprovada; base OSV pode estar incompleta.")
+    return 0
+
+
 def cmd_scan(a) -> int:
     argv: list[str] = []
     if a.target:
@@ -766,6 +788,9 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("path")
     rc.add_argument("--target", default="")
     rc.set_defaults(func=cmd_review_code)
+    dp = sub.add_parser("deps", help="dependências vulneráveis via OSV (lockfiles)")
+    dp.add_argument("path")
+    dp.set_defaults(func=cmd_deps)
     rp = sub.add_parser("replay", help="teste ativo autorizado (IDOR/mass/no-auth/rate)")
     rp.add_argument("request", help="arquivo JSON da requisição capturada")
     rp.add_argument("--tests", default="no-auth,idor,mass,rate")

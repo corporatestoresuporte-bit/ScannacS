@@ -8,7 +8,7 @@ Referências de requisito: OWASP ASVS/WSTG e API Security 2023 (ver README/links
 | Área (Seção 7) | Estado | Motor/skill | Evidência | Limite honesto |
 |---|---|---|---|---|
 | Inventário e exposição | 🟡 | `http-fingerprint`, `nmap`, `ffuf` | headers/portas/paths | SPA responde 200 a tudo (catch-all) — `ffuf -ac` mitiga; sem descoberta de rota logada |
-| CVEs e dependências | ❌ | — (nuclei pega alguns CVEs de rede) | — | **Sem** OSV/KEV/EPSS nem scan de lockfile/imagem. Não afirmar CVE por versão |
+| CVEs e dependências | 🟡 | `deps-osv` (`agente deps`) + nuclei | advisory OSV (id/CVE/fonte/horário) | Lê requirements.txt/package-lock.json e consulta osv.dev (real). **Sem** imagens de container, KEV/EPSS. "Afetada" != exploração; base pode estar incompleta |
 | Código e cadeia | 🟡 | `codereview` (SAST-leve regex) | arquivo:linha | Segredo/`service_role`/RLS/XSS/rota-sem-auth/mass/IDOR(`select *`). **Sem** Semgrep/Trivy/IaC/fluxo de dados |
 | Autenticação e sessão | 🟡 | `replay` (no-auth), `codereview` | resposta preservada | Sem fluxo OAuth/OIDC completo nem teste de expiração/revogação |
 | Autorização e privilégios | 🟡 | `replay` (IDOR/BOLA/mass) | resposta preservada | Precisa de 2 contas de teste (manual); efeito no servidor não é auto-confirmado |
