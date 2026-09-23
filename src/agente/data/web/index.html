@@ -231,14 +231,29 @@ const STATE_LBL={funcional:"✓ funcional",nao_instalada:"não instalada",
 const STATE_COLOR={funcional:"var(--green)",nao_instalada:"var(--amber)",
   instalada_nao_localizada:"var(--blue)",incompativel:"var(--red)",precisa_config:"var(--amber)"};
 
-async function diagnoseTools(){
-  const p=project();
-  if(!p.targets.length){ $("#diag").innerHTML='<div class="muted small">diagnóstico aparece ao adicionar um alvo.</div>'; return; }
-  $("#diag").innerHTML='<div class="muted small">diagnosticando…</div>';
-  let d; try{ d=await api("/api/diagnose",p); }catch(e){ $("#diag").innerHTML='<div class="err small">falha no diagnóstico</div>'; return; }
-  window._lastDiag=d;
+let _diagPoll=null;
+function diagnoseTools(){
+  return new Promise(async(resolve)=>{
+    const p=project();
+    if(!p.targets.length){ $("#diag").innerHTML='<div class="muted small">diagnóstico aparece ao adicionar um alvo.</div>'; return resolve(); }
+    if(_diagPoll){ clearInterval(_diagPoll); _diagPoll=null; }
+    try{ await api("/api/diagnose_start",p); }catch(e){ $("#diag").innerHTML='<div class="err small">falha ao iniciar diagnóstico</div>'; return resolve(); }
+    let ticks=0;
+    const stop=()=>{ if(_diagPoll){clearInterval(_diagPoll);_diagPoll=null;} resolve(); };
+    const poll=async()=>{
+      let s; try{ s=await api("/api/diagnose_state",null,"GET"); }catch(e){ return; }
+      window._lastDiag={os:s.os,tools:s.tools||[],resumo:s.resumo};
+      renderDiag(s);
+      if(s.done) stop();
+      else if(++ticks>60) stop();   // ~30s teto de segurança
+    };
+    poll(); _diagPoll=setInterval(poll,500);
+  });
+}
+function renderDiag(s){
   const order={necessaria:0,complementar:1,nao_aplicavel:2};
-  const rel=d.tools.filter(t=>t.role!=="nao_aplicavel").sort((a,b)=>order[a.role]-order[b.role]);
+  const rel=(s.tools||[]).filter(t=>t.role!=="nao_aplicavel")
+    .sort((a,b)=>(order[a.role]-order[b.role])||a.label.localeCompare(b.label));
   const cells=rel.map(t=>{
     const c=STATE_COLOR[t.state]||"var(--dim)";
     const ver=t.version?` <span class="muted">${esc(t.version)}</span>`:"";
@@ -248,12 +263,13 @@ async function diagnoseTools(){
         <span style="color:${c}">${STATE_LBL[t.state]||t.state}</span>${ver}</div>
       ${t.detail?`<div class="small muted">${esc(t.detail)}</div>`:""}</div>`;
   }).join("");
-  const na=d.tools.filter(t=>t.role==="nao_aplicavel").map(t=>t.key);
-  const naTxt=na.length?`<div class="small muted" style="margin-top:6px">não aplicável a este alvo: ${na.map(esc).join(", ")}</div>`:"";
-  const ess=(d.resumo.essenciais_faltando||[]);
-  const essTxt=ess.length?`<div class="err small" style="margin-top:6px">essencial faltando: ${ess.map(esc).join(", ")} — clique "Preparar ambiente"</div>`:"";
-  $("#diag").innerHTML=`<div class="small muted" style="margin:6px 0">SO: ${esc(d.os.os)}${d.os.distro?" ("+esc(d.os.distro)+")":""} · verde = testada e funcional</div>
-    <div class="toolgrid">${cells}</div>${naTxt}${essTxt}`;
+  const os=s.os?`SO: ${esc(s.os.os)}${s.os.distro?" ("+esc(s.os.distro)+")":""} · `:"";
+  const head=s.done?`${os}verde = testada e funcional`
+    :`${os}<span style="color:var(--green)">diagnosticando… ${rel.length} ferramenta(s)</span>`;
+  const ess=((s.resumo&&s.resumo.essenciais_faltando)||[]);
+  const essTxt=(s.done&&ess.length)?`<div class="err small" style="margin-top:6px">essencial faltando: ${ess.map(esc).join(", ")} — clique "Preparar ambiente"</div>`:"";
+  $("#diag").innerHTML=`<div class="small muted" style="margin:6px 0">${head}</div>
+    <div class="toolgrid">${cells||'<div class="muted small">verificando…</div>'}</div>${essTxt}`;
 }
 
 async function prepare(){

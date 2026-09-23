@@ -224,19 +224,38 @@ def _extract_version(text: str) -> str:
     return m.group(1) if m else (text.strip().splitlines()[0][:40] if text.strip() else "")
 
 
-def diagnose(kinds: set, options: dict | None = None) -> dict:
+def _item(t: dict, kinds: set, d: dict) -> dict:
+    return {"key": t["key"], "label": t["label"], "kind": t["kind"],
+            "role": role(t, kinds), **d,
+            "installable": t["kind"] in ("pip", "binary", "git"),
+            "intervention": t["kind"] in ("system", "docker")}
+
+
+def diagnose(kinds: set, options: dict | None = None, cb=None) -> dict:
+    """Diagnostica em PARALELO. Se `cb` for dado, chama cb(item) à medida que
+    cada ferramenta resolve (feedback progressivo na interface)."""
     options = options or {}
-    # checa as ferramentas EM PARALELO (senão a soma dos --version trava a UI)
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        diags = list(ex.map(_diagnose_one, TOOLS))
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     items = []
-    for t, d in zip(TOOLS, diags):
-        r = role(t, kinds)
-        items.append({"key": t["key"], "label": t["label"], "kind": t["kind"],
-                      "role": r, **d,
-                      "installable": t["kind"] in ("pip", "binary", "git"),
-                      "intervention": t["kind"] in ("system", "docker")})
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(_diagnose_one, t): t for t in TOOLS}
+        for fut in as_completed(futs):
+            t = futs[fut]
+            try:
+                d = fut.result()
+            except Exception as e:  # noqa: BLE001
+                d = {"state": "incompativel", "green": False, "version": "",
+                     "detail": f"erro no diagnóstico: {e}"}
+            it = _item(t, kinds, d)
+            items.append(it)
+            if cb:
+                try:
+                    cb(it)
+                except Exception:  # noqa: BLE001
+                    pass
+    # ordem estável (a de TOOLS) p/ exibição
+    order = {t["key"]: i for i, t in enumerate(TOOLS)}
+    items.sort(key=lambda x: order.get(x["key"], 99))
     # capacidades
     green = {i["key"] for i in items if i["green"]}
     ess_missing = [i for i in items if i["role"] == "necessaria" and not i["green"]]
@@ -400,6 +419,7 @@ def prepare(kinds: set, options: dict | None, cb=None, only: list[str] | None = 
     config.ensure_dirs()
     config.augment_path()
     results = {}
+    _emit(cb, msg="verificando o ambiente atual…")
     diag = diagnose(kinds, options)
     for item in diag["tools"]:
         key = item["key"]

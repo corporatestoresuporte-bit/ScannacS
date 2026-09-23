@@ -466,6 +466,53 @@ def diagnose(payload: dict) -> dict:
     return toolprep.diagnose(_kinds_from(payload), payload.get("options") or {})
 
 
+_DIAG = {"running": False, "done": False, "tools": [], "os": None,
+         "resumo": None, "rid": 0}
+_DIAG_LOCK = threading.Lock()
+
+
+def diagnose_start(payload: dict) -> dict:
+    kinds = _kinds_from(payload)
+    options = payload.get("options") or {}
+    # SEMPRE recomeça com o perfil mais recente (alvo mudou => rediagnostica);
+    # um rid descarta a escrita de execuções antigas ainda em andamento.
+    with _DIAG_LOCK:
+        rid = _DIAG["rid"] + 1
+        _DIAG.update({"running": True, "done": False, "tools": [],
+                      "os": toolprep.os_info(), "resumo": None, "rid": rid})
+
+    def cb(item):
+        with _DIAG_LOCK:
+            if _DIAG["rid"] == rid:
+                _DIAG["tools"].append(item)
+
+    def worker():
+        try:
+            res = toolprep.diagnose(kinds, options, cb=cb)
+            with _DIAG_LOCK:
+                if _DIAG["rid"] == rid:
+                    _DIAG["tools"] = res["tools"]
+                    _DIAG["resumo"] = res["resumo"]
+        except Exception as e:  # noqa: BLE001
+            with _DIAG_LOCK:
+                if _DIAG["rid"] == rid:
+                    _DIAG["resumo"] = {"erro": str(e), "funcionais": [],
+                                       "essenciais_faltando": []}
+        finally:
+            with _DIAG_LOCK:
+                if _DIAG["rid"] == rid:
+                    _DIAG["done"] = True
+                    _DIAG["running"] = False
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"ok": True}
+
+
+def diagnose_state() -> dict:
+    with _DIAG_LOCK:
+        return json.loads(json.dumps(_DIAG, default=str))
+
+
 def prepare_start(payload: dict) -> dict:
     with _PREP_LOCK:
         if _PREP["running"]:
@@ -556,6 +603,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, deps_status()); return
         if self.path == "/api/prepare_state":
             self._send(200, prepare_state()); return
+        if self.path == "/api/diagnose_state":
+            self._send(200, diagnose_state()); return
         if self.path == "/api/report":
             self._send(200, {"report": _snapshot().get("report", "")}); return
         if self.path == "/api/findings":
@@ -570,6 +619,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, verify_target(body.get("value", ""))); return
         if self.path == "/api/diagnose":
             self._send(200, diagnose(body)); return
+        if self.path == "/api/diagnose_start":
+            self._send(200, diagnose_start(body)); return
         if self.path == "/api/prepare":
             self._send(200, prepare_start(body)); return
         if self.path == "/api/project":

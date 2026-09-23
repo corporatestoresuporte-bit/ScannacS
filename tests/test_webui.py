@@ -90,6 +90,26 @@ class TestWebUI(unittest.TestCase):
         webui.cancel()
         self.assertTrue(webui._snapshot()["cancel"])
 
+    def test_diagnose_stream_usa_perfil_mais_recente(self):
+        # regressão: adicionar 2º alvo (site) não podia ser ignorado por "já
+        # rodando" — o perfil final tem que refletir code+site.
+        payload = {"targets": [{"kind": "code", "value": str(self.lab)},
+                               {"kind": "url", "value": "https://x.example"}]}
+        webui.diagnose_start(payload)
+        st = {}
+        for _ in range(120):
+            st = webui.diagnose_state()
+            if st.get("done"):
+                break
+            time.sleep(0.1)
+        self.assertTrue(st.get("done"))
+        rel = [t for t in st["tools"] if t["role"] != "nao_aplicavel"]
+        keys = {t["key"] for t in rel}
+        # tem ferramentas de código E de site (perfil combinado aplicado)
+        self.assertIn("semgrep", keys)      # code
+        self.assertIn("nuclei", keys)       # site
+        self.assertGreater(len(rel), 6)
+
 
 if __name__ == "__main__":
     unittest.main()
