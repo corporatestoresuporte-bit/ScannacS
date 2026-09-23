@@ -174,9 +174,9 @@ function addTarget(){
   const kind=$("#kind").value, val=$("#tval").value.trim();
   if(!val) return;
   targets.push({kind,value:val,verified:kind==="code"});
-  $("#tval").value=""; renderTargets(); syncProject(); diagnoseTools();
+  $("#tval").value=""; renderTargets(); syncProject(); scheduleDiag();
 }
-function delTarget(i){ targets.splice(i,1); renderTargets(); syncProject(); diagnoseTools(); }
+function delTarget(i){ targets.splice(i,1); renderTargets(); syncProject(); scheduleDiag(); }
 function renderTargets(){
   const box=$("#targets");
   if(!targets.length){ box.innerHTML='<div class="muted">nenhum alvo ainda.</div>'; return;}
@@ -231,15 +231,18 @@ const STATE_LBL={funcional:"✓ funcional",nao_instalada:"não instalada",
 const STATE_COLOR={funcional:"var(--green)",nao_instalada:"var(--amber)",
   instalada_nao_localizada:"var(--blue)",incompativel:"var(--red)",precisa_config:"var(--amber)"};
 
-let _diagPoll=null;
+let _diagPoll=null, _diagTimer=null, _preparing=false;
+function scheduleDiag(){ clearTimeout(_diagTimer); _diagTimer=setTimeout(diagnoseTools,400); }
 function diagnoseTools(){
   return new Promise(async(resolve)=>{
+    if(_preparing) return resolve();   // não diagnostica durante o preparo
     const p=project();
     if(!p.targets.length){ $("#diag").innerHTML='<div class="muted small">diagnóstico aparece ao adicionar um alvo.</div>'; return resolve(); }
     if(_diagPoll){ clearInterval(_diagPoll); _diagPoll=null; }
-    try{ await api("/api/diagnose_start",p); }catch(e){ $("#diag").innerHTML='<div class="err small">falha ao iniciar diagnóstico</div>'; return resolve(); }
+    $("#prepbtn").disabled=true;       // trava "Preparar" enquanto diagnostica (evita corrida)
+    try{ await api("/api/diagnose_start",p); }catch(e){ $("#diag").innerHTML='<div class="err small">falha ao iniciar diagnóstico</div>'; $("#prepbtn").disabled=false; return resolve(); }
     let ticks=0;
-    const stop=()=>{ if(_diagPoll){clearInterval(_diagPoll);_diagPoll=null;} resolve(); };
+    const stop=()=>{ if(_diagPoll){clearInterval(_diagPoll);_diagPoll=null;} if(!_preparing) $("#prepbtn").disabled=false; resolve(); };
     const poll=async()=>{
       let s; try{ s=await api("/api/diagnose_state",null,"GET"); }catch(e){ return; }
       window._lastDiag={os:s.os,tools:s.tools||[],resumo:s.resumo};
@@ -275,10 +278,13 @@ function renderDiag(s){
 async function prepare(){
   const p=project();
   if(!p.targets.length){ alert("adicione um alvo primeiro"); return; }
+  _preparing=true;
+  if(_diagPoll){ clearInterval(_diagPoll); _diagPoll=null; }   // não deixa diagnóstico concorrer
+  clearTimeout(_diagTimer);
   $("#prepbtn").disabled=true; $("#prep").classList.remove("hidden"); $("#caps").classList.add("hidden");
   $("#preplog").textContent="iniciando preparo do ambiente…\n";
   const r=await api("/api/prepare",p);
-  if(!r.ok){ $("#preplog").textContent+=(r.error||"não foi possível iniciar")+"\n"; $("#prepbtn").disabled=false; return; }
+  if(!r.ok){ $("#preplog").textContent+=(r.error||"não foi possível iniciar")+"\n"; _preparing=false; $("#prepbtn").disabled=false; return; }
   let seen=0;
   const iv=setInterval(async()=>{
     let s; try{ s=await api("/api/prepare_state",null,"GET"); }catch(e){ return; }
@@ -294,8 +300,10 @@ async function prepare(){
     $("#prepbar").style.width=Math.min(100,seen/total*100)+"%";
     $("#preplog").scrollTop=$("#preplog").scrollHeight;
     if(s.done){
-      clearInterval(iv); $("#prepbar").style.width="100%"; $("#prepbtn").disabled=false;
+      clearInterval(iv); $("#prepbar").style.width="100%";
+      _preparing=false;                       // libera o diagnóstico de novo
       await diagnoseTools(); showCaps(s.result); syncProject();
+      $("#prepbtn").disabled=false;
     }
   },700);
 }
@@ -352,7 +360,7 @@ async function api(path,body,method){
   if(body) opt.body=JSON.stringify(body);
   const r=await fetch(path,opt); return await r.json();
 }
-renderTargets(); diagnoseTools(); syncProject();
+renderTargets(); scheduleDiag(); syncProject();
 $("#opt_discovery").onchange=$("#opt_aggr").onchange=syncProject;
 </script>
 </body>

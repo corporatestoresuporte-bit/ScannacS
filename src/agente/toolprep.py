@@ -221,7 +221,7 @@ _VER_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
 
 def _extract_version(text: str) -> str:
     m = _VER_RE.search(text or "")
-    return m.group(1) if m else (text.strip().splitlines()[0][:40] if text.strip() else "")
+    return m.group(1) if m else ""   # sem número de versão -> vazio (não "Usage:…")
 
 
 def _item(t: dict, kinds: set, d: dict) -> dict:
