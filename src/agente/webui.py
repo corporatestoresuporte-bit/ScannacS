@@ -223,6 +223,11 @@ def _run_project(project: dict):
         else:
             _run_net_target(sess, scope, val, kind, options, rps, maxrun)
 
+    # teste de resistência do login (opção explícita) — DEFENSIVO, contas de teste
+    ab = options.get("authbf") or {}
+    if ab.get("enabled") and not only_claude and not _cancelled():
+        _run_authbf_step(sess, scope, ab)
+
     with _LOCK:
         cancelled = STATE["cancel"]
     sess.update_meta(status="scanned")
@@ -233,6 +238,34 @@ def _run_project(project: dict):
     # passagem automática pro Claude (Completa e Só Claude)
     if not cancelled and mode in ("completa", "claude"):
         _handoff(sess, project)
+
+
+def _run_authbf_step(sess, scope, ab: dict):
+    from . import authbf
+    url = (ab.get("url") or "").strip()
+    idx = _add_step("authbf (resistência do login)", url or "?", "site")
+    creds = [tuple(c.split(":", 1)) for c in ab.get("creds", []) if ":" in c]
+    if not url or not ab.get("template") or not creds:
+        _upd_step(idx, status="skip", ended=_now(),
+                  summary="faltam URL do login, corpo ({user}/{pass}) ou contas de teste")
+        return
+    _upd_step(idx, status="running", started=_now())
+    try:
+        cfg = authbf.AuthConfig(url=url, body_template=ab["template"],
+                                content_type=ab.get("content_type", "json"))
+        found = authbf.run_authbf(
+            sess, scope, cfg, creds,
+            max_attempts=int(ab.get("max_attempts", 10)),
+            delay=float(ab.get("delay", 1.0)),
+            max_duration=int(ab.get("max_duration", 60)),
+            allow_side_effects=True)   # opção explícita = opt-in do usuário
+        _upd_step(idx, status="done", ended=_now(),
+                  summary=f"{len(found)} resultado(s)")
+    except PermissionError as e:
+        _upd_step(idx, status="skip", ended=_now(), summary=str(e)[:150])
+    except Exception as e:  # noqa: BLE001
+        _upd_step(idx, status="error", ended=_now(), summary=str(e)[:150])
+    _set(findings=len(sess.findings()))
 
 
 def _run_code_target(sess, folder: str, options: dict):

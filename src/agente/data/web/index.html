@@ -115,7 +115,23 @@ footer{margin-top:30px;color:var(--dim);font-size:12px;text-align:center}
     <div class="muted" style="margin-bottom:6px">Opções dos testes</div>
     <label><input type="checkbox" id="opt_discovery"> Descoberta de conteúdo (força bruta de caminhos/arquivos — <b>não</b> é tentativa de login)</label>
     <label><input type="checkbox" id="opt_aggr"> Intensidade agressiva (rate maior, dentro do escopo)</label>
-    <label title="requer contas de teste e limites"><input type="checkbox" id="opt_authbf" disabled> Força bruta de autenticação (contas de teste + limites — configuração dedicada, em breve)</label>
+    <label><input type="checkbox" id="opt_authbf" onchange="toggleAuthbf()"> Força bruta de autenticação — teste de <b>resistência do login</b> (contas de TESTE + limites; só no seu alvo)</label>
+    <div id="authbf_panel" class="hidden" style="margin:8px 0 0 24px;border-left:2px solid var(--line);padding-left:12px">
+      <div class="small muted" style="margin-bottom:6px">Testa se o SEU login barra força-bruta (rate-limit/bloqueio). Não invade — usa contas de teste e para ao detectar bloqueio.</div>
+      <div class="row" style="margin:4px 0"><input type="text" id="ab_url" placeholder="URL do login (POST), ex.: https://meusite.com/api/login" style="flex:1"></div>
+      <div class="row" style="margin:4px 0">
+        <input type="text" id="ab_tmpl" placeholder='corpo com {user} e {pass}, ex.: {"email":"{user}","password":"{pass}"}' style="flex:1">
+        <select id="ab_ct"><option value="json">JSON</option><option value="form">form</option></select>
+      </div>
+      <div class="small muted" style="margin:4px 0">Contas de TESTE (uma <code>usuario:senha</code> por linha):</div>
+      <textarea id="ab_creds" rows="3" placeholder="teste@exemplo.com:SenhaErrada1&#10;admin:admin" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px;font-family:var(--mono);font-size:12px"></textarea>
+      <div class="row small" style="margin:6px 0;gap:12px">
+        <label style="gap:4px">tentativas <input type="number" id="ab_max" value="10" min="1" max="25" style="width:64px"></label>
+        <label style="gap:4px">intervalo(s) <input type="number" id="ab_delay" value="1" min="0.5" step="0.5" style="width:64px"></label>
+        <label style="gap:4px">duração(s) <input type="number" id="ab_dur" value="60" min="5" max="120" style="width:70px"></label>
+      </div>
+      <div class="small" style="color:var(--amber)">⚠ Só no seu próprio login, com contas de teste. Tetos: 25 tentativas, ≥0,5s, ≤120s. Para ao ver bloqueio.</div>
+    </div>
   </div>
 
   <div class="card">
@@ -198,9 +214,21 @@ function pickMode(el){
 }
 function esc(s){return (s+"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
 
+function toggleAuthbf(){
+  $("#authbf_panel").classList.toggle("hidden", !$("#opt_authbf").checked);
+  syncProject();
+}
+function authbfOpt(){
+  const creds=($("#ab_creds").value||"").split("\n").map(s=>s.trim()).filter(s=>s.includes(":"));
+  return {enabled:$("#opt_authbf").checked, url:($("#ab_url").value||"").trim(),
+    template:($("#ab_tmpl").value||"").trim(), content_type:$("#ab_ct").value,
+    creds, max_attempts:+$("#ab_max").value||10, delay:+$("#ab_delay").value||1,
+    max_duration:+$("#ab_dur").value||60};
+}
 function project(){
   return {targets:targets.map(t=>({kind:t.kind,value:t.value})), mode,
-    options:{content_discovery:$("#opt_discovery").checked, aggressive:$("#opt_aggr").checked}};
+    options:{content_discovery:$("#opt_discovery").checked,
+             aggressive:$("#opt_aggr").checked, authbf:authbfOpt()}};
 }
 async function verify(i){
   const t=targets[i];

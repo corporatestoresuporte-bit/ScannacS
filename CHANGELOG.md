@@ -4,6 +4,16 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado — teste de resistência do login (força-bruta DEFENSIVA) (2026-09-23)
+- Novo módulo `authbf` + `agente authbf` + opção na interface: verifica se o
+  **seu** login barra força-bruta (rate-limit/bloqueio). É defensivo — usa
+  **contas de TESTE** que você fornece e **para** ao detectar 429/403/lockout ou
+  sucesso. Guardrails DUROS: só host no escopo com posse comprovada; POST exige
+  opt-in; tetos 25 tentativas / ≥0,5s / ≤120s. Achados: "login sem proteção
+  anti-força-bruta" (médio), "credencial de teste aceita" (alto), ou registra
+  "proteção presente" (descartado) quando o login bloqueia. Nunca grava senha no
+  artefato. Distinto da descoberta de conteúdo (caminhos). test_authbf (loopback).
+
 ### Adicionado/Corrigido — cobertura de SPA + WAF (2026-09-23)
 - **Segredo no bundle (novo motor `bundle-audit`)**: baixa o HTML + os scripts
   MESMO-ORIGEM (leitura) e acha segredo servido ao cliente — Supabase

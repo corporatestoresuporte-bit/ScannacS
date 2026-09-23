@@ -778,6 +778,43 @@ def cmd_replay(a) -> int:
     return 0
 
 
+def cmd_authbf(a) -> int:
+    """Teste DEFENSIVO de resistência do login (contas de teste + limites)."""
+    from pathlib import Path
+    from . import authbf
+    creds: list[tuple[str, str]] = []
+    for c in a.cred:
+        if ":" in c:
+            u, p = c.split(":", 1)
+            creds.append((u, p))
+    if a.creds_file:
+        for line in Path(a.creds_file).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if ":" in line:
+                u, p = line.split(":", 1)
+                creds.append((u, p))
+    if not creds:
+        _p("Informe contas de teste: --cred usuario:senha (repetível) ou --creds-file.")
+        return 1
+    scope = scope_mod.load_scope()
+    sess = Session.active() or Session.create(environment="authbf")
+    cfg = authbf.AuthConfig(url=a.url, body_template=a.template,
+                            content_type=a.content_type)
+    try:
+        found = authbf.run_authbf(
+            sess, scope, cfg, creds, max_attempts=a.max_attempts, delay=a.delay,
+            max_duration=a.max_duration, allow_side_effects=a.side_effects)
+    except (PermissionError, ValueError) as e:
+        _p(f"BLOQUEADO: {e}")
+        return 2
+    _p(f"authbf: login testado. Sessão {sess.id}")
+    if not found:
+        _p("Sem achado (nem sucesso nem ausência de proteção conclusiva).")
+    for f in found:
+        _p(f"  [{f.severity.value.upper()}] {f.title}")
+    return 0
+
+
 def cmd_hook(_a) -> int:
     from .hook import main as hook_main
     return hook_main()
@@ -1096,6 +1133,23 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--com-efeito-colateral", dest="side_effects",
                     action="store_true", help="permite métodos que mudam estado")
     rp.set_defaults(func=cmd_replay)
+    ab = sub.add_parser("authbf", help="teste de resistência do login a força-bruta "
+                        "(contas de TESTE + limites; DEFENSIVO)")
+    ab.add_argument("--url", required=True, help="endpoint de login (POST)")
+    ab.add_argument("--template", required=True,
+                    help="corpo com {user} e {pass}, ex.: '{\"email\":\"{user}\",\"password\":\"{pass}\"}'")
+    ab.add_argument("--content-type", dest="content_type", default="json",
+                    choices=["json", "form"])
+    ab.add_argument("--cred", action="append", default=[],
+                    help="conta de teste usuario:senha (repetível)")
+    ab.add_argument("--creds-file", dest="creds_file", default=None,
+                    help="arquivo, uma 'usuario:senha' por linha")
+    ab.add_argument("--max-attempts", dest="max_attempts", type=int, default=10)
+    ab.add_argument("--delay", type=float, default=1.0)
+    ab.add_argument("--max-duration", dest="max_duration", type=int, default=60)
+    ab.add_argument("--com-efeito-colateral", dest="side_effects",
+                    action="store_true", help="obrigatório: POST muda estado")
+    ab.set_defaults(func=cmd_authbf)
     sub.add_parser("tools", help="lista motores/ferramentas detectadas").set_defaults(func=cmd_tools)
     sub.add_parser("report", help="relatório da sessão ativa").set_defaults(func=cmd_report)
     sub.add_parser("reconcile", help="reconciliação por ID dos achados").set_defaults(func=cmd_reconcile)
