@@ -9,17 +9,17 @@ Referências de requisito: OWASP ASVS/WSTG e API Security 2023 (ver README/links
 |---|---|---|---|---|
 | Inventário e exposição | 🟡 | `http-fingerprint`, `nmap`, `ffuf` | headers/portas/paths | SPA responde 200 a tudo (catch-all) — `ffuf -ac` mitiga; sem descoberta de rota logada |
 | CVEs e dependências | 🟡 | `deps-osv` (`agente deps`) + nuclei | advisory OSV + KEV/EPSS | Lê lockfiles, consulta osv.dev (real) e prioriza com CISA KEV + FIRST EPSS. **Sem** imagens de container. "Afetada" != exploração |
-| Código e cadeia | 🟡 | `codereview` + `sast` (Semgrep) + **`iac` (Trivy)** | arquivo:linha | codereview (regex) + Semgrep (SAST) + Trivy (IaC/misconfig) — Semgrep e Trivy validados em CI Linux. Sem fluxo de dados interprocedural |
-| Autenticação e sessão | 🟡 | `replay` (no-auth), `codereview` | resposta preservada | Sem fluxo OAuth/OIDC completo nem teste de expiração/revogação |
-| Autorização e privilégios | 🟡 | `replay` (IDOR/BOLA/mass) | resposta preservada + confirmação em lab | IDOR confirmada COM evidência e correção reconhecida em laboratório loopback (`test_lab_confirma`). Em alvo real precisa de 2 contas de teste; `no-auth` só remove headers de auth padrão (Authorization/Cookie/…), não sessão custom |
+| Código e cadeia | 🟡 | `codereview` + `sast` (Semgrep) + `iac` (Trivy) + **`bundle-audit`** | arquivo:linha / artefato | codereview + Semgrep + Trivy; **bundle-audit** baixa o JS servido e acha segredo no cliente (service_role/sk_live/AWS/GitHub) — pega o risco de SPA que o scan externo não via. Sem fluxo interprocedural |
+| Autenticação e sessão | 🟡 | `replay` (no-auth) + **captura autenticada (cURL)** + `authbf` | resposta preservada | Cola o "Copy as cURL" logado e testa rota LOGADA; `authbf` mede resistência do login a força-bruta (contas de teste + limites). Sem OAuth/OIDC completo nem teste de expiração/revogação |
+| Autorização e privilégios | 🟡 | `replay` (IDOR/BOLA/mass) + sessão autenticada | resposta preservada + confirmação em lab | IDOR confirmada COM evidência em lab (`test_lab_confirma`) e **IDOR autenticado** via cURL capturado (id de outro usuário). Em alvo real ainda ajuda ter 2 contas de teste |
 | Entrada e processamento | 🟡 | `sqlmap`, `codereview` (XSS) | saída sqlmap / arquivo:linha | Sem template injection / traversal / deserialização ativos |
 | Navegador e transporte | 🟡 | `tls` (✅), `cabecalhos-seguranca` | handshake / headers | TLS forte ✅; CSP/CORS/CSRF/cache: só presença de header, sem teste ativo |
-| APIs e consumo | 🟡 | `replay` + `dast` (ZAP) | resposta preservada | ZAP baseline (validado em CI lab). Sem GraphQL/WebSocket; rate-limit best-effort |
+| APIs e consumo | 🟡 | `replay` + `dast` (ZAP) + **`api-graphql-ws`** | resposta preservada | ZAP baseline; **GraphQL** (introspection exposta) + **WebSocket** (handshake sem-auth). Sem fuzzing profundo de schema |
 | Requisições e replay | ✅ | `replay` (+ `--har`) | resposta + baseline | Importa HAR; controle de efeito colateral. Proxy dedicado ainda não |
-| Banco e Supabase | 🟡 | `codereview` (RLS em migrations) | arquivo:linha SQL | **Não acessa o banco ao vivo** — distingue migration histórica de baseline, mas não `pg_policies` real |
+| Banco e Supabase | 🟡 | `codereview` (RLS em migrations) + `bundle-audit` | arquivo:linha / bundle | RLS por migrations + **service_role vazada no bundle** (externo). **Não acessa o banco ao vivo** (`pg_policies` real precisa de credencial) |
 | Servidor, firewall, nuvem | 🟡 | `nmap` (externo) | saída nmap | Sem acesso SSH/IAM/K8s; scan externo só vê exposição observável |
 | Integrações e lógica | 🟡 | `codereview` (preço/webhook) | arquivo:linha | Sem invariantes de negócio automatizadas |
-| SSRF e fronteiras internas | ❌ | — | — | Não implementado como teste ativo |
+| SSRF e fronteiras internas | 🟡 | `ssrf` (canário loopback + metadados nuvem) | canário/resposta | Ativo in-band: canário pega o fetch server-side; sondas AWS/GCP. **SSRF cego** sem canário alcançável precisa de coletor externo (OOB) — limitação |
 | Operação e dados sensíveis | 🟡 | redação em log/artefato | — | Sem checagem de backup/recuperação |
 
 ## Motores reais hoje
@@ -33,14 +33,23 @@ Integrados e exercitados em CI: **OSV** (`deps`), **CISA KEV + FIRST EPSS**
 `zap-import`). Falta: proxy dedicado de captura e fluxos autenticados profundos.
 
 ## Limitações estruturais
-- Sem sandbox de isolamento no Windows nativo (contenção é escopo + hook +
-  permissões do Claude, não isolamento forte).
+- **Sandbox forte NÃO implementado (decisão consciente).** No Windows nativo não
+  há isolamento real sem WSL/Docker/VM. A contenção é LÓGICA: escopo + posse
+  comprovada + hook PreToolUse (executor) + rate-limit + tetos por módulo. Isso
+  protege o ALVO (não deixa sair do escopo), mas não isola a execução do host.
+  Quem quiser isolamento roda a ferramenta dentro de WSL/Docker/VM.
+- SSRF cego (sem reflexo in-band) precisa de coletor externo (OOB) — não incluso.
 - O Claude (IA) é barrado pela plataforma de disparar scan ofensivo contra host
-  externo; quem executa é o usuário no terminal.
+  externo; quem executa é o usuário no terminal (semiautomático).
 - Cobertura por amostragem em grupos grandes de achados estáticos.
 
 ## Estado de verificação (o que foi realmente testado, e onde)
-- **117 testes unittest (stdlib)** — passam localmente (Windows, Python 3.13).
+- **154 testes unittest (stdlib)** — passam localmente (Windows) e em CI
+  (Ubuntu+Windows, 3.11/3.12/3.13).
+- **Novos motores com teste de laboratório (loopback):** `bundle-audit`
+  (segredo servido no JS), `authbf` (resistência do login), captura autenticada
+  (`parse_curl`), `ssrf` (canário + metadados), `api-graphql-ws` (introspection +
+  handshake). Todos com casos vulnerável/seguro e guardrails testados.
 - **Confirmação COM evidência + reconhecimento de correção** (`test_lab_confirma`):
   laboratório executável em loopback (app + 2 contas de teste, versão vulnerável e
   corrigida). O motor CONFIRMA a IDOR na versão vulnerável (resposta reproduzida,
