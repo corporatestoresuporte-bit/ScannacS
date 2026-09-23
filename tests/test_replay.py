@@ -82,6 +82,24 @@ class TestReplay(unittest.TestCase):
         self.assertNotIn("Cookie", out)
         self.assertIn("Accept", out)
 
+    def test_load_har(self):
+        har = {"log": {"entries": [
+            {"request": {"method": "get", "url": "https://meusite.com/api/x",
+                         "headers": [{"name": "Authorization", "value": "Bearer z"},
+                                     {"name": ":method", "value": "GET"}],
+                         "postData": {"text": ""}}},
+            {"request": {"method": "POST", "url": "https://meusite.com/api/y",
+                         "headers": [], "postData": {"text": '{"a":1}'}}},
+        ]}}
+        p = Path(tempfile.mkdtemp()) / "t.har"
+        p.write_text(json.dumps(har), encoding="utf-8")
+        reqs = replay.load_har(p)
+        self.assertEqual(len(reqs), 2)
+        self.assertEqual(reqs[0].method, "GET")
+        self.assertIn("Authorization", reqs[0].headers)
+        self.assertNotIn(":method", reqs[0].headers)   # pseudo-header ignorado
+        self.assertEqual(reqs[1].body, '{"a":1}')
+
     def test_load_request(self):
         tmp = Path(tempfile.mkdtemp()) / "r.json"
         tmp.write_text(json.dumps({"method": "post", "url": "https://x/y",

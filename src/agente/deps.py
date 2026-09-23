@@ -25,8 +25,37 @@ from pathlib import Path
 from .findings import Finding, Severity, Status
 
 OSV_URL = "https://api.osv.dev/v1/query"
+KEV_URL = ("https://www.cisa.gov/sites/default/files/feeds/"
+           "known_exploited_vulnerabilities.json")
+EPSS_URL = "https://api.first.org/data/v1/epss"
 _SKIP = {"node_modules", ".git", ".venv", "venv", "__pycache__", ".claude",
          "worktrees", "dist"}
+
+
+def fetch_kev(timeout: int = 30) -> set[str]:
+    """CVEs no catálogo CISA KEV (conhecidos EXPLORADOS ativamente)."""
+    req = urllib.request.Request(KEV_URL, headers={"User-Agent": "ScannacS-deps"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    return {v.get("cveID") for v in data.get("vulnerabilities", []) if v.get("cveID")}
+
+
+def fetch_epss(cves: list[str], timeout: int = 20) -> dict[str, float]:
+    """Score EPSS (probabilidade de exploração em 30d) por CVE, via FIRST."""
+    cves = sorted({c for c in cves if c})[:100]
+    if not cves:
+        return {}
+    url = EPSS_URL + "?cve=" + ",".join(cves)
+    req = urllib.request.Request(url, headers={"User-Agent": "ScannacS-deps"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    out: dict[str, float] = {}
+    for d in data.get("data", []) or []:
+        try:
+            out[d["cve"]] = float(d.get("epss", 0))
+        except (KeyError, TypeError, ValueError):
+            pass
+    return out
 
 
 def _now() -> str:
@@ -116,9 +145,13 @@ def _severity(vuln: dict) -> Severity:
             "LOW": Severity.LOW}.get(str(sev).upper(), Severity.MEDIUM)
 
 
-def run_deps(root: Path, session=None, querier=query_osv,
-             target: str = "") -> tuple[list[Finding], list[str]]:
-    """Roda o scan de dependências. Devolve (achados, limitações)."""
+def run_deps(root: Path, session=None, querier=query_osv, target: str = "",
+             kev=None, epss=None) -> tuple[list[Finding], list[str]]:
+    """Roda o scan de dependências (OSV) + priorização KEV/EPSS.
+
+    `kev`/`epss` são injetáveis (teste sem rede). Se None, são buscados;
+    indisponíveis => limitação (a priorização é opcional, não invalida o OSV).
+    """
     target = target or root.name
     deps = collect_deps(root)
     findings: list[Finding] = []
@@ -151,6 +184,35 @@ def run_deps(root: Path, session=None, querier=query_osv,
                 cve_applicability=f"{eco} {name}=={ver} consultado em {_now()}" if cve else "",
             )
             findings.append(f)
-            if session is not None:
-                session.add_finding(f.to_dict())
+
+    # --- priorização KEV/EPSS (opcional; não invalida os achados do OSV) ---
+    cves = [f.cve for f in findings if f.cve]
+    if cves:
+        if kev is None:
+            try:
+                kev = fetch_kev()
+            except Exception as e:  # noqa: BLE001
+                kev = set()
+                limits.append(f"CISA KEV indisponível (sem priorização KEV): {e}")
+        if epss is None:
+            try:
+                epss = fetch_epss(cves)
+            except Exception as e:  # noqa: BLE001
+                epss = {}
+                limits.append(f"EPSS indisponível (sem priorização EPSS): {e}")
+    kev = kev or set()
+    epss = epss or {}
+    for f in findings:
+        if f.cve and f.cve in kev:
+            f.title = "[KEV] " + f.title
+            f.impact = "[EXPLORADO ativamente — CISA KEV] " + f.impact
+            f.references.append("https://www.cisa.gov/known-exploited-vulnerabilities-catalog")
+        if f.cve and f.cve in epss:
+            f.impact = f"{f.impact} (EPSS {epss[f.cve]:.3f})"
+            f.references.append("https://www.first.org/epss/")
+
+    # grava depois de enriquecer (o dict persistido já leva KEV/EPSS)
+    if session is not None:
+        for f in findings:
+            session.add_finding(f.to_dict())
     return findings, limits

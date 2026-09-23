@@ -63,6 +63,29 @@ def load_request(path: Path) -> Req:
                fuzz_param=str(d.get("fuzz_param", "")))
 
 
+def load_har(path: Path) -> list[Req]:
+    """Importa requisições de um arquivo HAR (DevTools > Network > Export HAR).
+
+    Devolve todas as requisições; o filtro por escopo/posse é do run_replay.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    out: list[Req] = []
+    for e in (data.get("log", {}) or {}).get("entries", []) or []:
+        r = e.get("request", {}) or {}
+        url = r.get("url")
+        if not url:
+            continue
+        headers = {}
+        for h in r.get("headers", []) or []:
+            n = h.get("name", "")
+            if n and not n.startswith(":"):   # ignora pseudo-headers HTTP/2
+                headers[n] = h.get("value", "")
+        body = ((r.get("postData") or {}).get("text")) or ""
+        out.append(Req(method=str(r.get("method", "GET")).upper(),
+                       url=url, headers=headers, body=body))
+    return out
+
+
 def authorized_target(url: str, scope: Scope | None) -> tuple[bool, str]:
     """Só libera host no escopo E com posse comprovada."""
     if scope is None:

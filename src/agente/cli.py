@@ -567,33 +567,60 @@ def cmd_scan(a) -> int:
 
 
 def cmd_replay(a) -> int:
-    """Teste ativo autorizado (IDOR/mass/no-auth/rate) a partir de 1 requisição."""
+    """Teste ativo autorizado (IDOR/mass/no-auth/rate). 1 requisição (JSON) ou HAR."""
     from pathlib import Path
     from . import replay
-    reqf = Path(a.request)
-    if not reqf.exists():
-        _p(f"Arquivo de requisição não encontrado: {a.request}")
-        return 1
-    try:
-        req = replay.load_request(reqf)
-    except Exception as e:  # noqa: BLE001
-        _p(f"JSON de requisição inválido: {e}")
-        return 1
-    scope = scope_mod.load_scope()
     tests = [t.strip() for t in (a.tests or "").split(",") if t.strip()]
+    scope = scope_mod.load_scope()
     sess = Session.active() or Session.create(environment="replay")
-    try:
-        findings = replay.run_replay(sess, scope, req, tests,
-                                     fuzz_value=a.fuzz_value,
-                                     allow_side_effects=a.side_effects)
-    except PermissionError as e:
-        _p(f"BLOQUEADO: {e}")
-        return 2
-    _p(f"Replay em {req.url} (sessão {sess.id})")
-    if not findings:
+
+    # monta a lista de requisições (1 JSON ou várias de um HAR)
+    reqs = []
+    if a.har:
+        harf = Path(a.har)
+        if not harf.exists():
+            _p(f"HAR não encontrado: {a.har}")
+            return 1
+        try:
+            reqs = replay.load_har(harf)
+        except Exception as e:  # noqa: BLE001
+            _p(f"HAR inválido: {e}")
+            return 1
+        _p(f"HAR: {len(reqs)} requisição(ões) importada(s).")
+    elif a.request:
+        reqf = Path(a.request)
+        if not reqf.exists():
+            _p(f"Arquivo de requisição não encontrado: {a.request}")
+            return 1
+        try:
+            reqs = [replay.load_request(reqf)]
+        except Exception as e:  # noqa: BLE001
+            _p(f"JSON de requisição inválido: {e}")
+            return 1
+    else:
+        _p("Informe um <req.json> ou --har <arquivo.har>.")
+        return 1
+
+    total, pulados = [], 0
+    for req in reqs:
+        try:
+            found = replay.run_replay(sess, scope, req, tests,
+                                      fuzz_value=a.fuzz_value,
+                                      allow_side_effects=a.side_effects)
+        except PermissionError as e:
+            pulados += 1
+            if len(reqs) == 1:
+                _p(f"BLOQUEADO: {e}")
+                return 2
+            continue  # HAR: pula fora-de-escopo/muda-estado, segue o resto
+        total.extend(found)
+
+    _p(f"Replay: {len(reqs) - pulados} rodada(s), {pulados} pulada(s) "
+       f"(fora do escopo/posse ou mudam estado). Sessão {sess.id}")
+    if not total:
         _p("Nenhuma suspeita nos testes rodados. NÃO prova ausência de falha.")
         return 0
-    for f in findings:
+    for f in total:
         ev = ", ".join(f.evidence_ids) if f.evidence_ids else ""
         _p(f"  [{f.severity.value.upper()}] {f.title}  ({ev})")
     return 0
@@ -792,7 +819,8 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("path")
     dp.set_defaults(func=cmd_deps)
     rp = sub.add_parser("replay", help="teste ativo autorizado (IDOR/mass/no-auth/rate)")
-    rp.add_argument("request", help="arquivo JSON da requisição capturada")
+    rp.add_argument("request", nargs="?", help="arquivo JSON da requisição capturada")
+    rp.add_argument("--har", default=None, help="importa requisições de um arquivo HAR")
     rp.add_argument("--tests", default="no-auth,idor,mass,rate")
     rp.add_argument("--fuzz-value", dest="fuzz_value", default="__idor_probe__")
     rp.add_argument("--com-efeito-colateral", dest="side_effects",

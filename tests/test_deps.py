@@ -40,12 +40,28 @@ class TestDeps(unittest.TestCase):
             return [{"id": "GHSA-xxxx", "aliases": ["CVE-2099-0001"],
                      "summary": "falha X", "database_specific": {"severity": "HIGH"}}]
 
-        findings, limits = deps.run_deps(self.tmp, None, querier=fake)
+        # kev/epss injetados vazios => sem rede no teste
+        findings, limits = deps.run_deps(self.tmp, None, querier=fake,
+                                         kev=set(), epss={})
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].cve, "CVE-2099-0001")
         self.assertEqual(findings[0].cve_source, "osv.dev")
         self.assertEqual(findings[0].severity.value, "alta")
         self.assertEqual(limits, [])
+
+    def test_kev_epss_enriquecem_prioridade(self):
+        (self.tmp / "requirements.txt").write_text("flask==2.0.1\n", encoding="utf-8")
+
+        def fake(eco, name, ver):
+            return [{"id": "GHSA-y", "aliases": ["CVE-2099-0002"],
+                     "summary": "falha Y", "database_specific": {"severity": "HIGH"}}]
+
+        findings, _ = deps.run_deps(
+            self.tmp, None, querier=fake,
+            kev={"CVE-2099-0002"}, epss={"CVE-2099-0002": 0.973})
+        self.assertTrue(findings[0].title.startswith("[KEV]"))
+        self.assertIn("EXPLORADO ativamente", findings[0].impact)
+        self.assertIn("EPSS 0.973", findings[0].impact)
 
     def test_run_deps_base_indisponivel_e_limitacao(self):
         (self.tmp / "requirements.txt").write_text("flask==2.0.1\n", encoding="utf-8")
