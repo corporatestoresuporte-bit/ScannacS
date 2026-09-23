@@ -28,9 +28,9 @@ Externos (se instalados): `nmap`, `nuclei`, `sqlmap`, `ffuf` (+ wrappers de outr
 Análise local: `codereview` (SAST-leve). Ativo: `replay`.
 
 ## Integrados vs não integrados (Seção 9)
-Integrados e exercitados: **OSV** (`deps`), **CISA KEV + FIRST EPSS** (priorização
-em `deps`), **Semgrep** (`sast`) e **Trivy** (`iac`), validados em CI Linux. Integrados: **ZAP** (`dast`/`zap-import`, validado em CI lab). Falta: proxy
-dedicado de captura e fluxos autenticados profundos.
+Integrados e exercitados em CI: **OSV** (`deps`), **CISA KEV + FIRST EPSS**
+(priorização), **Semgrep** (`sast`), **Trivy** (`iac`) e **ZAP** (`dast`/
+`zap-import`). Falta: proxy dedicado de captura e fluxos autenticados profundos.
 
 ## Limitações estruturais
 - Sem sandbox de isolamento no Windows nativo (contenção é escopo + hook +
@@ -61,9 +61,11 @@ dedicado de captura e fluxos autenticados profundos.
   (modo programático) — o bloqueio real é **auth/orçamento/config no runner**,
   não impossibilidade. Ainda NÃO montado em CI (bloqueio concreto: sem credencial
   de IA no runner).
+- **ZAP (DAST) validado em CI lab** (job `zap-lab`): ZAP baseline real contra
+  servidor local → alertas importados.
 - **NÃO verificado / pendente:** release/ZIP publicado; E2E do fluxo Claude com
-  Claude REAL em CI (falta auth no runner); ZAP; acesso a banco ao vivo (RLS
-  efetiva com contas de teste).
+  Claude REAL em CI (falta auth no runner); acesso a banco ao vivo (RLS efetiva
+  com contas de teste); proxy de captura autenticado.
 
 *Versão da matriz acompanha o CHANGELOG. Uma linha aqui não vira "pronto" sem
 motor + evidência + teste correspondentes.*
