@@ -4,6 +4,12 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado (2026-09-23)
+- **Sessão autenticada vale pro scan inteiro:** o cURL colado aplica cookie/token
+  a TODOS os motores (headers/fingerprint/bundle/graphql-ws), não só ao replay —
+  passa WAF/challenge (Cloudflare/Vercel) e login, alcançando a app real.
+  `engines.set_session_headers`. test_session_headers.
+
 ### Corrigido (2026-09-23)
 - Cada "Iniciar" no app cria uma **sessão NOVA** (não acumula achados de scans
   anteriores na mesma sessão — antes o relatório inflava com duplicatas).

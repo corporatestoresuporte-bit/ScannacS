@@ -108,12 +108,24 @@ _BROWSER_HEADERS = {
 }
 
 
+# cabeçalhos de sessão autenticada (cookie/token) aplicados a TODO fetch da
+# análise quando o usuário cola o cURL — assim os motores passam o WAF/challenge
+# e alcançam a app real/logada. Setado/limpo pelo executor por rodada.
+_SESSION_HEADERS: dict = {}
+
+
+def set_session_headers(headers: dict | None) -> None:
+    global _SESSION_HEADERS
+    _SESSION_HEADERS = dict(headers or {})
+
+
 def _fetch(url: str, timeout: int = 15, method: str = "GET",
            want_body: bool = False):
-    """GET/HEAD com cara de navegador. Se HEAD levar 403/405, cai pra GET.
-    Devolve (status, headers_dict, body_or_'', err_or_None)."""
+    """GET/HEAD com cara de navegador (+ sessão autenticada, se houver). Se HEAD
+    levar 403/405, cai pra GET. Devolve (status, headers_dict, body_or_'', err)."""
+    hdrs = {**_BROWSER_HEADERS, **_SESSION_HEADERS}
     for m in ([method, "GET"] if method == "HEAD" else [method]):
-        req = urllib.request.Request(url, method=m, headers=_BROWSER_HEADERS)
+        req = urllib.request.Request(url, method=m, headers=hdrs)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 body = (resp.read(400_000).decode("utf-8", "replace")

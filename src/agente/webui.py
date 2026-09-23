@@ -210,6 +210,10 @@ def _run_project(project: dict):
 
     only_claude = (mode == "claude")
 
+    # sessão autenticada: aplica cookie/token do cURL a TODO o scan (passa WAF/
+    # challenge e alcança a app logada). Reaplicado a cada fetch dos motores.
+    _apply_session_headers(options)
+
     for item in project.get("targets", []):
         if _cancelled():
             break
@@ -236,6 +240,8 @@ def _run_project(project: dict):
     if ab.get("enabled") and not only_claude and not _cancelled():
         _run_authbf_step(sess, scope, ab)
 
+    engines_mod.set_session_headers({})   # limpa a sessão autenticada do processo
+
     with _LOCK:
         cancelled = STATE["cancel"]
     sess.update_meta(status="scanned")
@@ -246,6 +252,22 @@ def _run_project(project: dict):
     # passagem automática pro Claude (Completa e Só Claude)
     if not cancelled and mode in ("completa", "claude"):
         _handoff(sess, project)
+
+
+def _apply_session_headers(options: dict):
+    """Se houver cURL de sessão, aplica cookie/token/x-* a todos os fetches."""
+    from . import authsession
+    cap = options.get("authcapture") or {}
+    if not cap.get("curl"):
+        engines_mod.set_session_headers({})
+        return
+    d = authsession.parse_curl(cap["curl"])
+    keep = {}
+    for k, v in (d.get("headers") or {}).items():
+        kl = k.lower()
+        if kl in ("cookie", "authorization", "user-agent", "referer") or kl.startswith("x-"):
+            keep[k] = v
+    engines_mod.set_session_headers(keep)
 
 
 def _run_authcapture_step(sess, scope, cap: dict):
