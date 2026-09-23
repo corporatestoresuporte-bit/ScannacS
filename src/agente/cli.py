@@ -498,6 +498,23 @@ def cmd_finding_set(a) -> int:
     return 0 if ok else 2
 
 
+def cmd_reconcile(_a) -> int:
+    """Reconciliação por ID (bruto/únicos/duplicados/estado/revisados)."""
+    from . import reconcile as rec
+    s = Session.active()
+    if not s:
+        _p("Nenhuma sessão ativa.")
+        return 1
+    r = rec.reconcile(s.findings())
+    _p(f"Reconciliação da sessão {s.id}:")
+    _p(f"  brutos: {r['bruto']} | únicos: {r['unicos']} | "
+       f"duplicados: {r['duplicados']}")
+    _p(f"  por estado: {r['por_estado']}")
+    _p(f"  revisados: {r['revisados']} | não-revisados: {r['nao_revisados']}")
+    _p(f"  por origem: {r['por_origem']}")
+    return 0
+
+
 def cmd_session_close(_a) -> int:
     s = Session.active()
     if not s:
@@ -547,6 +564,11 @@ def cmd_review_code(a) -> int:
         return 1
     findings = codereview.review(root, target=a.target or root.name)
     sess = Session.active() or Session.create(environment="code-review")
+    if getattr(a, "export", True):
+        from . import codeexport
+        n = codeexport.export_snippets(sess, findings,
+                                       version=sess.meta().get("commit", ""))
+        _p(f"Trechos de código exportados (redigidos + hash): {n}")
     for f in findings:
         sess.add_finding(f.to_dict())
     _p(f"Análise de código: {root}  (sessão {sess.id})")
@@ -839,6 +861,11 @@ def print_report(sess: Session) -> None:
     if nao_revisados:
         _p("  -> não são 'seguros'; faltam validação/decisão rastreável "
            "(use `agente finding set-status`).")
+    from . import reconcile as _rec
+    r = _rec.reconcile(findings)
+    _p(f"\nRECONCILIAÇÃO: brutos {r['bruto']} | únicos {r['unicos']} | "
+       f"duplicados {r['duplicados']} | revisados {r['revisados']} | "
+       f"não-revisados {r['nao_revisados']}")
     _p(f"\nCOBERTURA: motores OK: {', '.join(sorted(set(ok))) or '-'}")
     _p("AVISO: relatório sem achado NÃO prova ausência de vulnerabilidade — "
        "só cobre o que foi testado. Amostragem não vira conclusão ampla: itens "
@@ -972,7 +999,9 @@ def build_parser() -> argparse.ArgumentParser:
     rc = sub.add_parser("review-code", help="análise de código local (segredo/RLS/XSS)")
     rc.add_argument("path")
     rc.add_argument("--target", default="")
-    rc.set_defaults(func=cmd_review_code)
+    rc.add_argument("--no-export", dest="export", action="store_false",
+                    help="não exportar os trechos de código (padrão: exporta)")
+    rc.set_defaults(func=cmd_review_code, export=True)
     dp = sub.add_parser("deps", help="dependências vulneráveis via OSV (lockfiles)")
     dp.add_argument("path")
     dp.set_defaults(func=cmd_deps)
@@ -993,6 +1022,7 @@ def build_parser() -> argparse.ArgumentParser:
     rp.set_defaults(func=cmd_replay)
     sub.add_parser("tools", help="lista motores/ferramentas detectadas").set_defaults(func=cmd_tools)
     sub.add_parser("report", help="relatório da sessão ativa").set_defaults(func=cmd_report)
+    sub.add_parser("reconcile", help="reconciliação por ID dos achados").set_defaults(func=cmd_reconcile)
     sub.add_parser("hook").set_defaults(func=cmd_hook)
     sub.add_parser("banner").set_defaults(func=cmd_banner)
     iw = sub.add_parser("init-workspace",
