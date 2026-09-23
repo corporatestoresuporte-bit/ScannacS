@@ -53,9 +53,10 @@ class TestBundleAudit(unittest.TestCase):
 
     def test_jwt_service_role_detectado(self):
         self.assertTrue(engines._jwt_is_service_role(self.jwt))
-        # anon key não deve disparar
+        # anon key não deve disparar (sem backslash em f-string: compat 3.11)
         hdr = base64.urlsafe_b64encode(b'{"alg":"HS256"}').decode().rstrip("=")
-        anon = f"{hdr}.{base64.urlsafe_b64encode(b'{\"role\":\"anon\"}').decode().rstrip('=')}.AAAA"
+        anon_pay = base64.urlsafe_b64encode(b'{"role":"anon"}').decode().rstrip("=")
+        anon = hdr + "." + anon_pay + ".AAAA"
         self.assertFalse(engines._jwt_is_service_role(anon))
 
     def test_scan_acha_segredos(self):
