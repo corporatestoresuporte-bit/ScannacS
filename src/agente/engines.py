@@ -32,7 +32,7 @@ from .findings import Finding, Severity, Status
 from .scope import Scope, Target
 from .verdict import EvidenceTier
 
-WORDLIST = config.ROOT / "data" / "wordlists" / "comum.txt"
+WORDLIST = config.WORDLIST   # empacotada no pacote (resolve instalado tb)
 
 # Ferramentas externas conhecidas (nome do binário no PATH).
 EXTERNAL_TOOLS = [

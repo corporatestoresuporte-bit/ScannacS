@@ -50,7 +50,10 @@ def cmd_version(_a) -> int:
 
 def cmd_doctor(_a) -> int:
     _p(f"Python              : {sys.version.split()[0]}")
-    _p(f"Raiz do projeto     : {config.ROOT}")
+    _p(f"Modo                : {'checkout (dev)' if config._IS_CHECKOUT else 'instalado'}")
+    _p(f"Dados (graváveis)   : {config.DATA_HOME}")
+    _p(f"Recursos (pacote)   : {config.PKG_DATA}")
+    _p(f"Wordlist encontrada : {config.WORDLIST.exists()}")
     claude = shutil.which("claude")
     _p(f"Claude Code         : {claude or 'NÃO encontrado no PATH'}")
     if claude:
@@ -800,6 +803,7 @@ def scan_main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-claude", action="store_true",
                     help="não abrir o Claude Code na fase 2 (só a fase 1)")
     a = ap.parse_args(argv)
+    config.ensure_dirs()
 
     target = a.target
     if not target:
@@ -930,6 +934,7 @@ def scan_main(argv: list[str] | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    config.ensure_dirs()
     parser = build_parser()
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)

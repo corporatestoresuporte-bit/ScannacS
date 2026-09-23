@@ -9,26 +9,68 @@ nunca versionados nem gravados em relatórios/logs.
 
 from __future__ import annotations
 
+import importlib.resources
 import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-# Raiz do repositório = três níveis acima deste arquivo
-# (src/agente/config.py -> src/agente -> src -> raiz).
-ROOT = Path(__file__).resolve().parents[2]
+# --- Recursos EMPACOTADOS (viajam dentro do pacote: wordlist, exemplos) ------
+def _package_data() -> Path:
+    """Diretório `data/` DENTRO do pacote (funciona no checkout e instalado)."""
+    try:
+        return Path(str(importlib.resources.files("agente"))) / "data"
+    except Exception:  # noqa: BLE001
+        return Path(__file__).resolve().parent / "data"
 
-CONFIG_DIR = ROOT / "config"
-PROMPTS_DIR = ROOT / "prompts"
+
+PKG_DATA = _package_data()
+
+# Raiz do checkout (quando rodando de src/). Só existe em desenvolvimento.
+ROOT = Path(__file__).resolve().parents[2]
+_IS_CHECKOUT = (ROOT / "pyproject.toml").exists()
+
+
+def _user_home() -> Path:
+    """Diretório de dados do usuário (NÃO escreve em site-packages)."""
+    env = os.environ.get("AGENTE_HOME") or os.environ.get("SCANNACS_HOME")
+    if env:
+        return Path(env)
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "ScannacS"
+    xdg = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(xdg) / "ScannacS"
+
+
+# Dados graváveis: no checkout usa a própria pasta; instalado, o dir do usuário.
+DATA_HOME = ROOT if _IS_CHECKOUT else _user_home()
+
+CONFIG_DIR = DATA_HOME / "config"
+PROMPTS_DIR = DATA_HOME / "prompts"
 MASTERS_DIR = PROMPTS_DIR / "masters"
-REPORTS_DIR = ROOT / "reports"
-LOGS_DIR = ROOT / "logs"
+REPORTS_DIR = DATA_HOME / "reports"
+LOGS_DIR = DATA_HOME / "logs"
 
 SCOPE_FILE = CONFIG_DIR / "scope.toml"
-SCOPE_EXAMPLE = CONFIG_DIR / "scope.example.toml"
 SETTINGS_FILE = CONFIG_DIR / "settings.toml"
-SETTINGS_EXAMPLE = CONFIG_DIR / "settings.example.toml"
-ENV_FILE = ROOT / ".env"
+ENV_FILE = DATA_HOME / ".env"
+
+# Exemplos vêm do pacote (para `scope init` funcionar instalado).
+SCOPE_EXAMPLE = PKG_DATA / "config" / "scope.example.toml"
+SETTINGS_EXAMPLE = PKG_DATA / "config" / "settings.example.toml"
+
+# Wordlist empacotada (resolvida via pacote, não via cwd).
+WORDLIST = PKG_DATA / "wordlists" / "comum.txt"
+
+
+def ensure_dirs() -> None:
+    """Cria os diretórios de dados graváveis (idempotente)."""
+    for d in (CONFIG_DIR, MASTERS_DIR, PROMPTS_DIR / "inbox", REPORTS_DIR, LOGS_DIR):
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
 
 class ConfigError(Exception):
