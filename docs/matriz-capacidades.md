@@ -9,7 +9,7 @@ Referências de requisito: OWASP ASVS/WSTG e API Security 2023 (ver README/links
 |---|---|---|---|---|
 | Inventário e exposição | 🟡 | `http-fingerprint`, `nmap`, `ffuf` | headers/portas/paths | SPA responde 200 a tudo (catch-all) — `ffuf -ac` mitiga; sem descoberta de rota logada |
 | CVEs e dependências | 🟡 | `deps-osv` (`agente deps`) + nuclei | advisory OSV + KEV/EPSS | Lê lockfiles, consulta osv.dev (real) e prioriza com CISA KEV + FIRST EPSS. **Sem** imagens de container. "Afetada" != exploração |
-| Código e cadeia | 🟡 | `codereview` (regex) + **`sast` (Semgrep)** | arquivo:linha | codereview: segredo/`service_role`/RLS/XSS/rota-sem-auth/mass/IDOR. Semgrep real via `agente sast` (validado em CI Linux). **Sem** Trivy/IaC ainda |
+| Código e cadeia | 🟡 | `codereview` + `sast` (Semgrep) + **`iac` (Trivy)** | arquivo:linha | codereview (regex) + Semgrep (SAST) + Trivy (IaC/misconfig) — Semgrep e Trivy validados em CI Linux. Sem fluxo de dados interprocedural |
 | Autenticação e sessão | 🟡 | `replay` (no-auth), `codereview` | resposta preservada | Sem fluxo OAuth/OIDC completo nem teste de expiração/revogação |
 | Autorização e privilégios | 🟡 | `replay` (IDOR/BOLA/mass) | resposta preservada | Precisa de 2 contas de teste (manual); efeito no servidor não é auto-confirmado |
 | Entrada e processamento | 🟡 | `sqlmap`, `codereview` (XSS) | saída sqlmap / arquivo:linha | Sem template injection / traversal / deserialização ativos |
@@ -29,9 +29,8 @@ Análise local: `codereview` (SAST-leve). Ativo: `replay`.
 
 ## Integrados vs não integrados (Seção 9)
 Integrados e exercitados: **OSV** (`deps`), **CISA KEV + FIRST EPSS** (priorização
-em `deps`), **Semgrep** (`sast`, validado em CI Linux). Não integrados ainda:
-`ZAP` (DAST/proxy), `Trivy` (imagens/IaC). Próximos passos; **não** contados como
-cobertura pronta.
+em `deps`), **Semgrep** (`sast`) e **Trivy** (`iac`), validados em CI Linux. Não integrados ainda: `ZAP` (DAST/proxy). Próximo passo; **não** contado
+como cobertura pronta.
 
 ## Limitações estruturais
 - Sem sandbox de isolamento no Windows nativo (contenção é escopo + hook +

@@ -93,3 +93,26 @@ jobs:
           echo "$OUT" | grep -q "vuln.py:2" || { echo "FALHOU: nao detectou vuln.py:2"; exit 1; }
           if echo "$OUT" | grep -q "safe.py"; then echo "FALHOU: falso-positivo em safe.py"; exit 1; fi
           echo "OK: Semgrep detectou o caso vulneravel e ignorou o seguro."
+
+  trivy-lab:
+    needs: unittest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: IaC real (Trivy) contra Dockerfile inseguro
+        shell: bash
+        env:
+          PYTHONPATH: src
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "$HOME/.local/bin"
+          export PATH="$HOME/.local/bin:$PATH"
+          trivy --version
+          LAB="$RUNNER_TEMP/iac-lab"; mkdir -p "$LAB"
+          printf 'FROM alpine:3.19\nRUN echo oi\n' > "$LAB/Dockerfile"
+          OUT=$(python -m agente iac "$LAB")
+          echo "$OUT"
+          echo "$OUT" | grep -q "Trivy IaC" || { echo "FALHOU: Trivy nao apontou misconfig"; exit 1; }
+          echo "OK: Trivy apontou misconfig de IaC no laboratorio."

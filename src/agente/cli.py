@@ -559,6 +559,29 @@ def cmd_sast(a) -> int:
     return 0
 
 
+def cmd_iac(a) -> int:
+    """IaC/misconfig via Trivy (roda se instalado)."""
+    from pathlib import Path
+    from . import iac
+    root = Path(a.path)
+    if not root.exists():
+        _p(f"Pasta não encontrada: {a.path}")
+        return 1
+    sess = Session.active() or Session.create(environment="iac")
+    findings, limits = iac.run_trivy_config(root)
+    for f in findings:
+        sess.add_finding(f.to_dict())
+    _p(f"IaC (Trivy) em {root}  (sessão {sess.id})")
+    for f in findings:
+        ev = f.evidence_ids[0] if f.evidence_ids else ""
+        _p(f"  [{f.severity.value.upper()}] {f.title}  ({ev})")
+    if not findings:
+        _p("  Nenhuma misconfig (ou ferramenta ausente — ver limitações).")
+    for lim in limits:
+        _p(f"  (limitação) {lim}")
+    return 0
+
+
 def cmd_deps(a) -> int:
     """Scanner de dependências vulneráveis (OSV)."""
     from pathlib import Path
@@ -910,6 +933,9 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("path")
     st.add_argument("--config", default="auto")
     st.set_defaults(func=cmd_sast)
+    ic = sub.add_parser("iac", help="IaC/misconfig via Trivy (se instalado)")
+    ic.add_argument("path")
+    ic.set_defaults(func=cmd_iac)
     rp = sub.add_parser("replay", help="teste ativo autorizado (IDOR/mass/no-auth/rate)")
     rp.add_argument("request", nargs="?", help="arquivo JSON da requisição capturada")
     rp.add_argument("--har", default=None, help="importa requisições de um arquivo HAR")
