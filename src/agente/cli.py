@@ -689,7 +689,10 @@ def cmd_init_workspace(a) -> int:
     for s in srcws.rglob("*"):
         if not s.is_file():
             continue
-        d = dst / s.relative_to(srcws)
+        parts = list(s.relative_to(srcws).parts)
+        if parts and parts[0] == "claude_ws":   # renomeia de volta p/ .claude
+            parts[0] = ".claude"
+        d = dst.joinpath(*parts)
         d.parent.mkdir(parents=True, exist_ok=True)
         if d.exists():
             kept += 1

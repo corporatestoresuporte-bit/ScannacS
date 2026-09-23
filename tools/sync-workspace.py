@@ -30,12 +30,15 @@ def main() -> int:
         if not src.exists():
             print(f"aviso: {item} ausente, pulando")
             continue
-        dst = DST / item
+        # `.claude` é pasta oculta e o setuptools a exclui do wheel — empacota
+        # como `claude_ws`; o init-workspace renomeia de volta no destino.
+        dstname = "claude_ws" if item == ".claude" else item
+        dst = DST / dstname
         if src.is_dir():
             shutil.copytree(src, dst, ignore=_ignore)
         else:
             shutil.copy2(src, dst)
-        print(f"ok: {item}")
+        print(f"ok: {item}" + (" (empacotado como claude_ws)" if dstname != item else ""))
     n = sum(1 for _ in DST.rglob("*") if _.is_file())
     print(f"workspace empacotado: {n} arquivo(s) em {DST}")
     return 0
