@@ -98,10 +98,17 @@ def cmd_ui(a) -> int:
         _p(f"[dry-run] abriria: claude -n \"AgenteAuditoria\" \"{prompt}\"  "
            f"(cwd={config.ROOT})")
         return 0
+    from pathlib import Path as _P
+    wsdir = _P.cwd()
+    if not (wsdir / ".claude").exists():   # 1ª utilização: prepara o workspace
+        try:
+            materialize_workspace(wsdir)
+        except Exception:  # noqa: BLE001
+            pass
     _p("Abrindo Claude Code no projeto… (Ctrl+C encerra)")
     try:
         return subprocess.call([claude, "-n", "AgenteAuditoria", prompt],
-                               cwd=str(config.ROOT))
+                               cwd=str(wsdir))
     except KeyboardInterrupt:
         _p("\nInterrompido.")
         return 130
@@ -672,19 +679,16 @@ def cmd_banner(_a) -> int:
     return 0
 
 
-def cmd_init_workspace(a) -> int:
-    """Materializa o workspace do Claude (CLAUDE.md, .claude, prompts) numa pasta.
+def materialize_workspace(dst) -> tuple[int, int]:
+    """Copia o workspace empacotado para `dst`. Idempotente (não sobrescreve).
 
-    Idempotente: NÃO sobrescreve arquivos existentes (preserva o que o usuário
-    editou). Não copia segredos/escopo/sessões (não estão no workspace)."""
+    Devolve (criados, preservados). Não traz segredo/escopo/sessão."""
     from pathlib import Path
     import shutil
-    dst = Path(a.dir).resolve()
+    dst = Path(dst).resolve()
     srcws = config.PKG_DATA / "workspace"
     if not srcws.exists():
-        _p(f"Workspace empacotado ausente em {srcws} "
-           "(rode tools/sync-workspace.py antes de empacotar).")
-        return 1
+        raise FileNotFoundError(f"workspace empacotado ausente em {srcws}")
     created, kept = 0, 0
     for s in srcws.rglob("*"):
         if not s.is_file():
@@ -699,8 +703,18 @@ def cmd_init_workspace(a) -> int:
             continue
         shutil.copy2(s, d)
         created += 1
+    return created, kept
+
+
+def cmd_init_workspace(a) -> int:
+    """Materializa o workspace do Claude (CLAUDE.md, .claude, prompts) numa pasta."""
+    try:
+        created, kept = materialize_workspace(a.dir)
+    except FileNotFoundError as e:
+        _p(f"{e} (rode tools/sync-workspace.py antes de empacotar).")
+        return 1
     config.ensure_dirs()
-    _p(f"Workspace pronto em {dst}: {created} criado(s), {kept} preservado(s).")
+    _p(f"Workspace pronto em {a.dir}: {created} criado(s), {kept} preservado(s).")
     _p("Abra o Claude Code nessa pasta e use /scan (a fase 2 usa os agentes/skills).")
     return 0
 
@@ -1058,9 +1072,17 @@ def scan_main(argv: list[str] | None = None) -> int:
         if claude and sys.stdin.isatty():
             _p("\n== Fase 2: abrindo o Claude Code para validar e finalizar "
                "o relatório (Ctrl+C encerra) ==")
+            from pathlib import Path as _P
+            wsdir = _P.cwd()
+            if not (wsdir / ".claude").exists():   # 1ª utilização: prepara sozinho
+                try:
+                    c, _k = materialize_workspace(wsdir)
+                    _p(f"   workspace preparado ({c} arquivos) em {wsdir}")
+                except Exception as e:  # noqa: BLE001
+                    _p(f"   (aviso: não preparei o workspace: {e})")
             try:
                 subprocess.call([claude, "-n", "Auditoria", "/finalizar"],
-                                cwd=str(config.ROOT))
+                                cwd=str(wsdir))
             except Exception as e:  # noqa: BLE001
                 _p(f"(não consegui abrir o Claude Code: {e})")
         elif not claude:

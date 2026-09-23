@@ -58,6 +58,16 @@ jobs:
           AGENTE_HOME="$D" python -m agente scope add-target --type url --value https://exemplo-proprio.example --tests all
           AGENTE_HOME="$D" python -m agente tools
           AGENTE_HOME="$D" python -m agente audit plan
+      - name: init-workspace do pacote instalado (fase-2 do Claude)
+        shell: bash
+        run: |
+          WS="$RUNNER_TEMP/Ação Workspace"
+          python -m agente init-workspace "$WS"
+          test -f "$WS/CLAUDE.md" || { echo "FALHOU: sem CLAUDE.md"; exit 1; }
+          test -f "$WS/.claude/settings.json" || { echo "FALHOU: sem .claude/settings.json"; exit 1; }
+          test -f "$WS/.claude/agents/validador-achados.md" || { echo "FALHOU: sem agente"; exit 1; }
+          test -d "$WS/.claude/skills" || { echo "FALHOU: sem skills"; exit 1; }
+          echo "OK: workspace do Claude materializado a partir do wheel."
 
   semgrep-lab:
     needs: unittest

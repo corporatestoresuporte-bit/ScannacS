@@ -20,6 +20,10 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
   cliente, dado sensível retornado, `select *`, sem rate-limit.
 
 ### Adicionado
+- **Workspace distribuível:** `agente init-workspace <pasta>` materializa
+  CLAUDE.md/.claude(agentes/skills/hooks/commands)/prompts do pacote instalado
+  (idempotente, preserva edições). `scan`/`ui` preparam o workspace sozinhos na
+  1ª utilização e abrem o Claude na pasta do usuário. Validado no CI (Win+Linux).
 - **CI Windows + Linux:** matriz `unittest` em ubuntu e windows (3.11/3.12/3.13)
   + job `instalacao` que faz `pip install` do artefato e roda `agente doctor` em
   caminho com espaço/acento (ambos SO) — verde nos runners reais.

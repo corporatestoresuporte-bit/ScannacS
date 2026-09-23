@@ -53,8 +53,10 @@ cobertura pronta.
 - **Instalação a partir de artefato limpo** (git archive → venv → `pip install`)
   verificada localmente também. O `.claude/` da fase-2 vem do clone do repo, não
   do wheel — a CLI instalada roda scan/deps/sast/review-code/replay.
-- **NÃO verificado / pendente:** release/ZIP publicado; E2E do fluxo Claude
-  (prompts/skills/hooks/agentes) a partir do pacote instalado; Trivy/ZAP;
+- **Workspace do Claude a partir do wheel:** `init-workspace` materializa
+  CLAUDE.md/.claude/agentes/skills/hooks — verificado no CI (Win+Linux) e local.
+- **NÃO verificado / pendente:** release/ZIP publicado; E2E do fluxo Claude com
+  Claude REAL (carregar contexto/rodar agentes de ponta a ponta); Trivy/ZAP;
   acesso a banco ao vivo.
 
 *Versão da matriz acompanha o CHANGELOG. Uma linha aqui não vira "pronto" sem
