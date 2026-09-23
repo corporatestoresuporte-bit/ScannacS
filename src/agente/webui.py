@@ -223,6 +223,11 @@ def _run_project(project: dict):
         else:
             _run_net_target(sess, scope, val, kind, options, rps, maxrun)
 
+    # sessão autenticada (opcional): testa rota LOGADA a partir do cURL colado
+    cap = options.get("authcapture") or {}
+    if cap.get("curl") and not only_claude and not _cancelled():
+        _run_authcapture_step(sess, scope, cap)
+
     # teste de resistência do login (opção explícita) — DEFENSIVO, contas de teste
     ab = options.get("authbf") or {}
     if ab.get("enabled") and not only_claude and not _cancelled():
@@ -238,6 +243,39 @@ def _run_project(project: dict):
     # passagem automática pro Claude (Completa e Só Claude)
     if not cancelled and mode in ("completa", "claude"):
         _handoff(sess, project)
+
+
+def _run_authcapture_step(sess, scope, cap: dict):
+    """Sessão autenticada: usa o 'Copy as cURL' logado p/ testar rota LOGADA
+    (no-auth/IDOR). Só leitura (GET/HEAD); método que muda estado é pulado."""
+    from . import authsession, replay
+    curl = (cap.get("curl") or "").strip()
+    idx = _add_step("sessão autenticada (rota logada)", "", "site")
+    if not curl:
+        _upd_step(idx, status="skip", ended=_now(), summary="sem cURL colado")
+        return
+    d = authsession.parse_curl(curl)
+    if not d["url"]:
+        _upd_step(idx, status="skip", ended=_now(),
+                  summary="cURL sem URL — cole o 'Copy as cURL (bash)' completo")
+        return
+    _upd_step(idx, status="running", started=_now(),
+              tool=f"sessão autenticada · {d['method']} {d['url']}")
+    req = replay.Req(method=d["method"], url=d["url"], headers=d["headers"],
+                     body=d["body"], fuzz_param=(cap.get("fuzz_param") or ""))
+    tests = ["no-auth"] + (["idor"] if req.fuzz_param else [])
+    fuzz_value = (cap.get("fuzz_value") or "").strip() or "__idor_probe__"
+    try:
+        found = replay.run_replay(sess, scope, req, tests,
+                                  fuzz_value=fuzz_value, allow_side_effects=False)
+        auth = "logado" if authsession.has_auth(d["headers"]) else "sem auth no cURL"
+        _upd_step(idx, status="done", ended=_now(),
+                  summary=f"{auth}; {len(found)} suspeita(s)")
+    except PermissionError as e:
+        _upd_step(idx, status="skip", ended=_now(), summary=str(e)[:150])
+    except Exception as e:  # noqa: BLE001
+        _upd_step(idx, status="error", ended=_now(), summary=str(e)[:150])
+    _set(findings=len(sess.findings()))
 
 
 def _run_authbf_step(sess, scope, ab: dict):

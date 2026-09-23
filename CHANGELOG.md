@@ -4,6 +4,16 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado — captura de sessão autenticada (2026-09-23)
+- `authsession.parse_curl`: cola o "Copy as cURL (bash)" do DevTools (requisição
+  logada) e extrai método/URL/headers (cookie/token)/corpo. Token fica REDIGIDO
+  no relatório (`redacted_headers`).
+- `agente replay --curl <arquivo>` + opção **"Sessão autenticada"** na interface:
+  testa a rota LOGADA (no-auth + IDOR com o id de outro usuário). Só leitura
+  (GET/HEAD); método que muda estado é pulado; segue gated por escopo+posse.
+  Abre caminho pro IDOR/BOLA real (ver a página como usuário logado).
+- Testes: `test_authsession` (6) + smoke da UI. 144 testes verdes.
+
 ### Adicionado — teste de resistência do login (força-bruta DEFENSIVA) (2026-09-23)
 - Novo módulo `authbf` + `agente authbf` + opção na interface: verifica se o
   **seu** login barra força-bruta (rate-limit/bloqueio). É defensivo — usa

@@ -749,8 +749,20 @@ def cmd_replay(a) -> int:
         except Exception as e:  # noqa: BLE001
             _p(f"JSON de requisição inválido: {e}")
             return 1
+    elif getattr(a, "curl", None):
+        from . import authsession
+        curlf = Path(a.curl)
+        text = curlf.read_text(encoding="utf-8") if curlf.exists() else a.curl
+        d = authsession.parse_curl(text)
+        if not d["url"]:
+            _p("cURL sem URL reconhecível. Cole o 'Copy as cURL (bash)' completo.")
+            return 1
+        auth = "LOGADO" if authsession.has_auth(d["headers"]) else "sem auth detectada"
+        _p(f"cURL capturado: {d['method']} {d['url']} ({auth})")
+        reqs = [replay.Req(method=d["method"], url=d["url"], headers=d["headers"],
+                           body=d["body"], fuzz_param=getattr(a, "fuzz_param", "") or "")]
     else:
-        _p("Informe um <req.json> ou --har <arquivo.har>.")
+        _p("Informe um <req.json>, --har <arquivo.har> ou --curl <arquivo/cURL>.")
         return 1
 
     total, pulados = [], 0
@@ -1128,6 +1140,10 @@ def build_parser() -> argparse.ArgumentParser:
     rp = sub.add_parser("replay", help="teste ativo autorizado (IDOR/mass/no-auth/rate)")
     rp.add_argument("request", nargs="?", help="arquivo JSON da requisição capturada")
     rp.add_argument("--har", default=None, help="importa requisições de um arquivo HAR")
+    rp.add_argument("--curl", default=None,
+                    help="arquivo com o 'Copy as cURL' (DevTools) — testa LOGADO")
+    rp.add_argument("--fuzz-param", dest="fuzz_param", default="",
+                    help="nome do parâmetro/id a variar no teste de IDOR")
     rp.add_argument("--tests", default="no-auth,idor,mass,rate")
     rp.add_argument("--fuzz-value", dest="fuzz_value", default="__idor_probe__")
     rp.add_argument("--com-efeito-colateral", dest="side_effects",

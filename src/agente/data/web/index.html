@@ -132,6 +132,16 @@ footer{margin-top:30px;color:var(--dim);font-size:12px;text-align:center}
       </div>
       <div class="small" style="color:var(--amber)">⚠ Só no seu próprio login, com contas de teste. Tetos: 25 tentativas, ≥0,5s, ≤120s. Para ao ver bloqueio.</div>
     </div>
+    <label style="margin-top:8px"><input type="checkbox" id="opt_authcap" onchange="toggleAuthcap()"> Sessão autenticada — testar rota <b>logada</b> (cole o "Copy as cURL")</label>
+    <div id="authcap_panel" class="hidden" style="margin:8px 0 0 24px;border-left:2px solid var(--line);padding-left:12px">
+      <div class="small muted" style="margin-bottom:6px">No navegador <b>logado</b>: F12 → aba <b>Network</b> → clique numa chamada da API → botão direito → <b>Copy → Copy as cURL (bash)</b> → cole aqui:</div>
+      <textarea id="cap_curl" rows="4" placeholder="curl 'https://meusite.com/api/conta?id=123' -H 'cookie: sid=...'" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px;font-family:var(--mono);font-size:12px"></textarea>
+      <div class="row small" style="margin:6px 0;gap:12px">
+        <label style="gap:4px">parâmetro de id (IDOR) <input type="text" id="cap_fuzz" placeholder="ex.: id" style="width:110px"></label>
+        <label style="gap:4px">valor de OUTRO id <input type="text" id="cap_fuzzval" placeholder="ex.: 2" style="width:90px"></label>
+      </div>
+      <div class="small" style="color:var(--amber)">Só leitura (GET/HEAD). Seu token/cookie fica <b>redigido</b> no relatório. Só no seu alvo (posse comprovada).</div>
+    </div>
   </div>
 
   <div class="card">
@@ -225,10 +235,20 @@ function authbfOpt(){
     creds, max_attempts:+$("#ab_max").value||10, delay:+$("#ab_delay").value||1,
     max_duration:+$("#ab_dur").value||60};
 }
+function toggleAuthcap(){
+  $("#authcap_panel").classList.toggle("hidden", !$("#opt_authcap").checked);
+  syncProject();
+}
+function authcapOpt(){
+  if(!$("#opt_authcap").checked) return {};
+  return {curl:($("#cap_curl").value||"").trim(), fuzz_param:($("#cap_fuzz").value||"").trim(),
+          fuzz_value:($("#cap_fuzzval").value||"").trim()};
+}
 function project(){
   return {targets:targets.map(t=>({kind:t.kind,value:t.value})), mode,
     options:{content_discovery:$("#opt_discovery").checked,
-             aggressive:$("#opt_aggr").checked, authbf:authbfOpt()}};
+             aggressive:$("#opt_aggr").checked, authbf:authbfOpt(),
+             authcapture:authcapOpt()}};
 }
 async function verify(i){
   const t=targets[i];
