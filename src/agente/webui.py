@@ -404,10 +404,15 @@ def _handoff(sess, project):
         env["AGENTE_HOME"] = str(config.DATA_HOME)  # MESMA sessão/estado
         _set(claude={"status": "rodando", "log": "Claude analisando as evidências…"})
         try:
-            proc = subprocess.run([claude, "-p", _HANDOFF_PROMPT],
-                                  cwd=str(wsdir), env=env, capture_output=True,
-                                  text=True, encoding="utf-8", errors="replace",
-                                  timeout=1800)
+            # --allowedTools pré-autoriza os comandos locais `agente ...` em modo
+            # headless MESMO sem o workspace estar "trusted" (allowlist estreita;
+            # não é skip-permissions). Ordem: flags ANTES do -p (é variádico).
+            proc = subprocess.run(
+                [claude, "--allowedTools", "Bash(agente:*)",
+                 "Bash(python -m agente:*)", "-p", _HANDOFF_PROMPT],
+                cwd=str(wsdir), env=env, capture_output=True,
+                text=True, encoding="utf-8", errors="replace",
+                stdin=subprocess.DEVNULL, timeout=1800)
             out = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr)
                                          if proc.stderr else "")
             status = "concluido" if proc.returncode == 0 else "erro"
@@ -572,6 +577,13 @@ def _index_html() -> bytes:
 class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # silencioso
         pass
+
+    def handle_one_request(self):
+        # navegador que fecha/aborta a conexão não deve cuspir traceback
+        try:
+            super().handle_one_request()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            self.close_connection = True
 
     def _send(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
