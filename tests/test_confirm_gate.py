@@ -1,20 +1,25 @@
 """Portão de confirmação de achados (spec §7)."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import _pathshim  # noqa: F401
 
-from agente.evidence import CollectionStatus, Evidence
+from agente.evidence import (CollectionStatus, Evidence, preserve_artifact)
 from agente.findings import (ConfirmationType, Finding, Status, Validation,
                              can_confirm)
 from agente.verdict import EvidenceTier
 
 
-def _good_evidence(tier=EvidenceTier.TOOL_OBSERVED):
-    e = Evidence(target="meusite.com", tool="curl", params="curl -sI ...",
+def _good_evidence(tier=EvidenceTier.TOOL_OBSERVED, target="meusite.com"):
+    # artefato REAL preservado (arquivo existe + hash bate) via a função real
+    path, digest = preserve_artifact(
+        Path(tempfile.mkdtemp()), "e", "HTTP/1.1 200 OK\nraw preservado\n")
+    e = Evidence(target=target, tool="curl", params="curl -sI ...",
                  status=CollectionStatus.OK, tier=tier)
-    e.artifact_path = "reports/sessions/x/artifacts/e.txt"
-    e.artifact_sha256 = "a" * 64
+    e.artifact_path = path
+    e.artifact_sha256 = digest
     return e
 
 
@@ -38,6 +43,20 @@ class TestConfirmGate(unittest.TestCase):
         ok, missing = can_confirm(_base_finding(), [])
         self.assertFalse(ok)
         self.assertTrue(any("evidência" in m for m in missing))
+
+    def test_artefato_inexistente_nao_confirma(self):
+        # campos preenchidos mas arquivo não existe / hash forjado
+        e = _good_evidence()
+        e.artifact_path = "nao/existe/e.txt"
+        e.artifact_sha256 = "f" * 64
+        ok, _ = can_confirm(_base_finding(), [e])
+        self.assertFalse(ok)
+
+    def test_evidencia_de_outro_alvo_nao_confirma(self):
+        # evidência real, mas de OUTRO alvo
+        e = _good_evidence(target="outro-site.com")
+        ok, _ = can_confirm(_base_finding(), [e])  # finding é meusite.com
+        self.assertFalse(ok)
 
     def test_abstencao_nao_confirma(self):
         f = _base_finding()

@@ -77,6 +77,24 @@ class Evidence:
         )
 
 
+def artifact_matches(artifact_path: str, expected_sha: str) -> bool:
+    """O arquivo de artefato EXISTE e seu conteúdo bate com o hash gravado?
+
+    É o que separa "campos preenchidos" de "prova real preservada": um caminho
+    inexistente ou um hash forjado NÃO passam aqui.
+    """
+    if not artifact_path or not expected_sha:
+        return False
+    p = Path(artifact_path)
+    if not p.is_file():
+        return False
+    try:
+        # hash sobre BYTES (evita tradução de \r\n do Windows no round-trip)
+        return hashlib.sha256(p.read_bytes()).hexdigest() == expected_sha
+    except OSError:
+        return False
+
+
 def preserve_artifact(dir_path: Path, evidence_id: str, raw_output: str) -> tuple[str, str]:
     """Salva a saída bruta (redigida) como artefato e devolve (caminho, sha256).
 
@@ -84,6 +102,7 @@ def preserve_artifact(dir_path: Path, evidence_id: str, raw_output: str) -> tupl
     """
     dir_path.mkdir(parents=True, exist_ok=True)
     safe = redact(raw_output)
+    data = safe.encode("utf-8", "replace")
     path = dir_path / f"{evidence_id}.txt"
-    path.write_text(safe, encoding="utf-8")
-    return (str(path), sha256_text(safe))
+    path.write_bytes(data)   # bytes: hash bate no round-trip (sem \r\n do Windows)
+    return (str(path), hashlib.sha256(data).hexdigest())

@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
-from .evidence import Evidence
+from .evidence import Evidence, artifact_matches
 from .verdict import EvidenceTier, TIER_RANK, read_verdict
 
 
@@ -123,13 +123,20 @@ def validate_confirmation(finding: dict, evidences: list[dict]) -> tuple[bool, l
     if not str(finding.get("target", "")).strip():
         missing.append("alvo do achado não definido")
 
+    tgt = str(finding.get("target", "")).strip()
     ids = set(finding.get("evidence_ids", []) or [])
     linked = [e for e in evidences if e.get("id") in ids]
-    usable = [e for e in linked
-              if e.get("status") == "ok" and e.get("artifact_path")
-              and e.get("artifact_sha256") and e.get("tool")]
+    usable = [
+        e for e in linked
+        if e.get("status") == "ok" and e.get("tool")
+        # vínculo alvo↔evidência: a prova tem que ser DO alvo do achado
+        and str(e.get("target", "")).strip() == tgt and tgt
+        # integridade: o artefato existe e o hash bate (não campo forjado)
+        and artifact_matches(e.get("artifact_path", ""), e.get("artifact_sha256", ""))
+    ]
     if not usable:
-        missing.append("sem evidência utilizável ligada ao achado na sessão")
+        missing.append("sem evidência utilizável ligada ao achado "
+                       "(alvo/integridade/artefato conferidos)")
 
     v = finding.get("validation") or {}
     if not (v.get("validated_by") and v.get("validated_at")):
@@ -166,11 +173,16 @@ def can_confirm(finding: Finding, evidences: list[Evidence]) -> tuple[bool, list
     if not finding.target.strip():
         missing.append("alvo do achado não definido")
 
-    usable = [e for e in evidences if e.is_usable]
+    usable = [
+        e for e in evidences
+        if e.is_usable
+        and e.target.strip() == finding.target.strip() and finding.target.strip()
+        and artifact_matches(e.artifact_path, e.artifact_sha256)
+    ]
     if not usable:
         missing.append(
-            "sem evidência utilizável (precisa de ferramenta + artefato "
-            "preservado + hash + coleta OK)"
+            "sem evidência utilizável (ferramenta + artefato existente + hash "
+            "conferido + coleta OK + mesmo alvo do achado)"
         )
 
     v = finding.validation
