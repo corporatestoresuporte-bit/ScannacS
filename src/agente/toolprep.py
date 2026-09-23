@@ -86,6 +86,8 @@ TOOLS = [
      "kind": "builtin", "necess": {"site", "server"}, "compl": set()},
     {"key": "bundle-audit", "label": "Segredo no bundle (JS do cliente)",
      "kind": "builtin", "necess": {"site"}, "compl": set()},
+    {"key": "api-graphql-ws", "label": "GraphQL/WebSocket (introspection/handshake)",
+     "kind": "builtin", "necess": set(), "compl": {"site"}},
     {"key": "codereview", "label": "Análise de código (SAST-leve)",
      "kind": "builtin", "necess": {"code"}, "compl": set()},
     {"key": "deps-osv", "label": "Dependências (OSV/KEV/EPSS)",

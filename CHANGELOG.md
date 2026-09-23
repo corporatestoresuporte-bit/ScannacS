@@ -4,6 +4,14 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
 
 ## [Não lançado]
 
+### Adicionado — GraphQL + WebSocket (2026-09-23)
+- Motor builtin `api-graphql-ws` (roda p/ site): **GraphQL** descobre o endpoint
+  (caminhos comuns) e checa se a **introspection** está exposta (schema inteiro
+  = info disclosure, normalmente off em prod); **WebSocket** acha `ws://|wss://`
+  no HTML/JS e faz o **handshake** sem credencial (101 = aceita anônimo). Só
+  leitura; sem mutation. `apiprobe.graphql_introspection/discover_graphql/
+  find_ws_urls/ws_handshake`. test_apiprobe (loopback on/off). 154 testes.
+
 ### Adicionado — SSRF ativo autorizado (2026-09-23)
 - `ssrf.run_ssrf` + `agente ssrf` + campo "SSRF no parâmetro" na captura
   autenticada: testa se um parâmetro que recebe URL faz o SERVIDOR buscar

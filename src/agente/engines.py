@@ -344,6 +344,62 @@ class BundleAuditEngine(Engine):
         return out
 
 
+class ApiProbeEngine(Engine):
+    """GraphQL (introspection) + WebSocket (handshake sem auth). Leitura."""
+    name = "api-graphql-ws"
+    keys = ("graphql", "websocket", "ws", "api-moderna", "api-graphql-ws")
+
+    def command(self, target: Target) -> str:
+        return f"[builtin] GraphQL/WebSocket probe {_url(target)}"
+
+    def collect(self, target: Target) -> tuple[str, CollectionStatus]:
+        from . import apiprobe
+        base = _url(target)
+        host = _host(target)
+        _s, _h, html, err = _fetch(base, want_body=True)
+        gql = apiprobe.discover_graphql(base)
+        ws_urls = apiprobe.find_ws_urls(html or "")
+        for s in BundleAuditEngine()._same_origin_srcs(html or "", base, host)[:15]:
+            _st, _hh, body, e = _fetch(s, want_body=True, timeout=20)
+            if e is None and body:
+                ws_urls += apiprobe.find_ws_urls(body)
+        ws_urls = list(dict.fromkeys(ws_urls))[:5]
+        ws = [apiprobe.ws_handshake(w) for w in ws_urls]
+        raw = json.dumps({"graphql": gql, "ws": ws, "ws_urls": ws_urls},
+                         ensure_ascii=False, indent=2)
+        return (raw, CollectionStatus.OK)
+
+    def interpret(self, target, raw, status):
+        if status != CollectionStatus.OK:
+            return []
+        try:
+            d = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            return []
+        out = []
+        for g in d.get("graphql", []):
+            if g.get("enabled"):
+                out.append(Finding(
+                    target=target.value,
+                    title="GraphQL com introspection habilitada",
+                    status=Status.SUSPECTED, severity=Severity.MEDIUM,
+                    impact=f"O schema inteiro da API está exposto ({g.get('types')} "
+                           f"tipos) em {g.get('endpoint')} — facilita mapear ataques.",
+                    remediation="Desabilitar introspection em produção; exigir auth "
+                                "no endpoint GraphQL.", engine=self.name))
+        for w in d.get("ws", []):
+            if w.get("accepted"):
+                out.append(Finding(
+                    target=target.value,
+                    title="WebSocket aceita conexão sem autenticação",
+                    status=Status.SUSPECTED, severity=Severity.MEDIUM,
+                    impact=f"Handshake 101 em {w.get('url')} sem credencial — "
+                           "verificar se troca dados sensíveis sem autenticar.",
+                    remediation="Exigir token/sessão no handshake; validar origem.",
+                    engine=self.name))
+        return out
+
+
 # ---------------------------------------------------------- ferramentas externas
 class ExternalToolEngine(Engine):
     """Wrapper genérico: roda o binário se existir; senão, limitação."""
@@ -447,7 +503,8 @@ class ContentDiscoveryEngine(Engine):
 
 def all_engines() -> list[Engine]:
     return [HeadersEngine(), TlsEngine(), HttpFingerprintEngine(),
-            BundleAuditEngine(), ContentDiscoveryEngine(), *_external()]
+            BundleAuditEngine(), ApiProbeEngine(), ContentDiscoveryEngine(),
+            *_external()]
 
 
 def engines_for(test_key: str) -> list[Engine]:
@@ -554,7 +611,7 @@ def run_engine(session, scope: Scope, target: Target, engine: Engine,
 
     # 4) coleta
     if isinstance(engine, (HeadersEngine, TlsEngine, HttpFingerprintEngine,
-                           BundleAuditEngine)):
+                           BundleAuditEngine, ApiProbeEngine)):
         raw, status = engine.collect(target)
         rc = 0 if status == CollectionStatus.OK else None
     else:
