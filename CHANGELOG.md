@@ -10,6 +10,12 @@ Formato baseado em Keep a Changelog. Datas em AAAA-MM-DD.
   passa WAF/challenge (Cloudflare/Vercel) e login, alcançando a app real.
   `engines.set_session_headers`. test_session_headers.
 
+### Corrigido — Semgrep travando por horas (2026-09-24)
+- semgrep gera `semgrep-core`/`osemgrep` como NETO; matar só o pai deixava o
+  neto vivo segurando o pipe -> subprocess.run pendurava (7-17h "running").
+  Agora run_semgrep usa Popen + teto real (300s) e MATA A ÁRVORE (taskkill /T /
+  killpg) no timeout. Provado: retorna no teto e não deixa semgrep-core vivo.
+
 ### Corrigido — desempenho em repos grandes (2026-09-23)
 - Semgrep agora exclui node_modules/dist/build/out/.next/coverage/vendor + teto
   de tempo por regra (antes varria node_modules e levava ~1h). codereview também

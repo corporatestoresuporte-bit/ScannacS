@@ -42,30 +42,66 @@ def parse_semgrep(stdout: str, target: str = "") -> list[Finding]:
     return out
 
 
-def run_semgrep(path: Path, config: str = "auto", timeout: int = 600,
+def _terminate_tree(proc) -> None:
+    """Mata o processo E a árvore (semgrep gera semgrep-core/osemgrep como netos;
+    matar só o pai deixa o neto vivo segurando o pipe -> trava)."""
+    import os
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True)
+        else:
+            import signal
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception:  # noqa: BLE001
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def run_semgrep(path: Path, config: str = "auto", timeout: int = 300,
                 target: str = "") -> tuple[list[Finding], list[str]]:
-    """Roda Semgrep contra uma pasta local. Devolve (achados, limitações)."""
+    """Roda Semgrep contra uma pasta local. Devolve (achados, limitações).
+
+    Teto de tempo REAL: no timeout mata a árvore (semgrep-core incluso), senão
+    o neto sobrevive e o scan fica preso por horas.
+    """
+    import os
     if shutil.which("semgrep") is None:
         return [], ["semgrep não instalado (SAST real indisponível) — "
                     "instale com `pip install semgrep` (Linux/macOS/WSL)"]
-    # exclui libs/build (senão varre node_modules e leva 1h); teto por regra
     _EXC = ["node_modules", "dist", "build", "out", ".next", "coverage",
             ".turbo", ".cache", "vendor", ".git"]
     cmd = ["semgrep", "--json", "--quiet", "--config", config,
-           "--timeout", "30", "--timeout-threshold", "3"]
+           "--timeout", "20", "--timeout-threshold", "3"]
     for e in _EXC:
         cmd += ["--exclude", e]
     cmd.append(str(path))
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+    preexec = None if os.name == "nt" else os.setsid
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return [], [f"semgrep excedeu {timeout}s (inconclusivo)"]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, encoding="utf-8", errors="replace",
+                                creationflags=flags, preexec_fn=preexec)
     except Exception as e:  # noqa: BLE001
         return [], [f"falha ao executar semgrep: {e}"]
-    findings = parse_semgrep(proc.stdout or "", target=target)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        rc = proc.returncode
+    except subprocess.TimeoutExpired:
+        _terminate_tree(proc)                      # mata semgrep-core (neto)
+        try:
+            out, err = proc.communicate(timeout=15)
+        except Exception:  # noqa: BLE001
+            out, err = "", ""
+        return (parse_semgrep(out or "", target=target),
+                [f"semgrep excedeu {timeout}s e foi interrompido (inconclusivo)"])
+    except Exception as e:  # noqa: BLE001
+        _terminate_tree(proc)
+        return [], [f"falha ao executar semgrep: {e}"]
+    findings = parse_semgrep(out or "", target=target)
     limits: list[str] = []
-    if proc.returncode not in (0, 1) and not findings:  # 1 = achou algo
-        limits.append(f"semgrep retornou código {proc.returncode} "
-                      f"(stderr: {(proc.stderr or '')[:160]})")
+    if rc not in (0, 1) and not findings:          # 1 = achou algo
+        limits.append(f"semgrep retornou código {rc} (stderr: {(err or '')[:160]})")
     return findings, limits
